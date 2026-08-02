@@ -1,0 +1,328 @@
+// OrgGraph data model.
+// Design notes:
+// - Every tenant-scoped row carries organizationId with an index for isolation.
+// - Configurable definitions (fields, workflow states, dashboard widgets, checks)
+//   are stored as validated JSON; core relational integrity (tenants, records,
+//   relationships, memberships, audit) stays relational.
+// - IDs are immutable cuids; human-facing slugs/names may change freely.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity & tenancy
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String?
+  // Dev auth stores a bcrypt-like hash; real deployments swap in Auth.js/Clerk.
+  passwordHash  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  memberships   Membership[]
+  auditEvents   AuditEvent[]
+}
+
+model Organization {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  description     String?
+  industryPackKey String?
+  industryPackVersion String?
+  locations       String[] @default([])
+  teamSize        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships        Membership[]
+  permissionGroups   PermissionGroup[]
+  wizardSession      WizardSession?
+  recommendations    Recommendation[]
+  schemaVersions     SchemaVersion[]
+  recordTypes        RecordTypeDefinition[]
+  relationshipTypes  RelationshipTypeDefinition[]
+  records            Record[]
+  relationships      Relationship[]
+  workflows          WorkflowDefinition[]
+  dashboards         DashboardDefinition[]
+  healthChecks       HealthCheckDefinition[]
+  auditEvents        AuditEvent[]
+
+  @@index([industryPackKey])
+}
+
+enum SystemRole {
+  OWNER
+  ADMIN
+  MANAGER
+  CONTRIBUTOR
+  VIEWER
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           SystemRole   @default(CONTRIBUTOR)
+  createdAt      DateTime     @default(now())
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+enum Sensitivity {
+  GENERAL
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+
+model PermissionGroup {
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String
+  name           String
+  description    String?
+  // JSON: { canManageSchema, canEditRecords, canViewSensitivity: Sensitivity[], ... }
+  capabilities   Json
+  isDefault      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Wizard & recommendation
+// ---------------------------------------------------------------------------
+
+model WizardSession {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  step           String       @default("organization")
+  status         String       @default("in_progress") // in_progress | completed
+  answers        Json         @default("{}")
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+enum RecommendationStatus {
+  DRAFT
+  EDITED
+  APPROVED
+  GENERATED
+}
+
+model Recommendation {
+  id             String               @id @default(cuid())
+  organizationId String
+  status         RecommendationStatus @default(DRAFT)
+  source         String               @default("deterministic") // deterministic | openai
+  // Full SchemaRecommendation payload (validated by Zod before persistence).
+  payload        Json
+  // Snapshot of counts computed from payload at save time (never hard-coded).
+  counts         Json
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model SchemaVersion {
+  id             String       @id @default(cuid())
+  organizationId String
+  version        Int
+  label          String?
+  generatedFrom  String?      // recommendation id
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, version])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Configurable meta-model
+// ---------------------------------------------------------------------------
+
+model RecordTypeDefinition {
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String       // stable machine identifier, tenant-scoped
+  name           String
+  description    String?
+  icon           String?
+  color          String?
+  sensitivity    Sensitivity  @default(GENERAL)
+  archivable     Boolean      @default(true)
+  markdownTemplate String?
+  // FieldDefinition[] as JSON (validated); see src/lib/meta-model.
+  fields         Json         @default("[]")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  records        Record[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+model RelationshipTypeDefinition {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  key                String
+  sourceTypeKey      String
+  targetTypeKey      String
+  forwardLabel       String
+  reverseLabel       String
+  cardinality        String       @default("many_to_many") // one_to_one | one_to_many | many_to_one | many_to_many
+  required           Boolean      @default(false)
+  sensitivity        Sensitivity  @default(GENERAL)
+  supportsValidity   Boolean      @default(false)
+  createdAt          DateTime     @default(now())
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Records & relationships (populated in later milestones)
+// ---------------------------------------------------------------------------
+
+model Record {
+  id             String       @id @default(cuid())
+  organizationId String
+  recordTypeId   String
+  recordTypeKey  String
+  displayName    String
+  slug           String
+  status         String?
+  sensitivity    Sensitivity  @default(GENERAL)
+  values         Json         @default("{}")
+  archived       Boolean      @default(false)
+  reviewStatus   String       @default("unreviewed") // unreviewed | reviewed
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recordType     RecordTypeDefinition @relation(fields: [recordTypeId], references: [id], onDelete: Cascade)
+  outgoing       Relationship[]       @relation("SourceRecord")
+  incoming       Relationship[]       @relation("TargetRecord")
+
+  @@unique([organizationId, recordTypeKey, slug])
+  @@index([organizationId, recordTypeKey])
+}
+
+model Relationship {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  relationshipTypeKey String
+  sourceId           String
+  targetId           String
+  metadata           Json         @default("{}")
+  sourceAttribution  String?
+  validFrom          DateTime?
+  validUntil         DateTime?
+  reviewStatus       String       @default("unreviewed")
+  createdById        String?
+  createdAt          DateTime     @default(now())
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  source             Record       @relation("SourceRecord", fields: [sourceId], references: [id], onDelete: Cascade)
+  target             Record       @relation("TargetRecord", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([sourceId])
+  @@index([targetId])
+}
+
+// ---------------------------------------------------------------------------
+// Workflows, dashboards, health checks (definitions generated at approval)
+// ---------------------------------------------------------------------------
+
+model WorkflowDefinition {
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String
+  name           String
+  recordTypeKey  String
+  definition     Json         // { states, transitions, requiredFields, approvals, completion }
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+model DashboardDefinition {
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String
+  name           String
+  widgets        Json         // Widget[]
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+model HealthCheckDefinition {
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String
+  name           String
+  severity       String       @default("warning") // info | warning | critical
+  rule           Json         // { kind, params }
+  explanation    String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Audit (append-only)
+// ---------------------------------------------------------------------------
+
+model AuditEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  actorUserId    String?
+  action         String       // e.g. org.created, wizard.completed, recommendation.approved, workspace.generated
+  entityType     String?
+  entityId       String?
+  summary        String?
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+}

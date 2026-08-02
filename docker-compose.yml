@@ -1,0 +1,23 @@
+# Alternative local Postgres for anyone who has Docker.
+# The default dev flow uses the embedded Postgres (npm run db:start) on port 55432,
+# so this compose file exposes 5432 to avoid clashing. Update DATABASE_URL to match.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orggraph
+      POSTGRES_PASSWORD: orggraph
+      POSTGRES_DB: orggraph
+    ports:
+      - "5432:5432"
+    volumes:
+      - orggraph_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orggraph"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  orggraph_pgdata:

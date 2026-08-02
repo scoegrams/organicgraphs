@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design language: construction drafting on paper.
+  Two fixed neutrals — paper (ground) and ink (structure, type, hairlines) —
+  carry the whole surface. Exactly two roles are user-chosen: --main (primary
+  signal, e.g. graph nodes and primary actions) and --accent (secondary
+  signal). Everything else derives from paper/ink so a palette change never
+  touches structure. --main/--accent are stored as "r g b" channels (not
+  hsl) so the palette picker can read/write them straight from a native
+  color input.
+*/
+
+@layer base {
+  :root {
+    --background: 38 30% 95%; /* paper */
+    --foreground: 20 9% 11%; /* ink */
+
+    --card: 38 30% 95%;
+    --card-foreground: 20 9% 11%;
+
+    --primary-foreground: 40 25% 97%;
+    --secondary: 36 20% 90%;
+    --secondary-foreground: 20 9% 15%;
+
+    --muted: 36 18% 91%;
+    --muted-foreground: 27 7% 42%;
+
+    --accent-foreground: 40 25% 97%;
+
+    --destructive: 6 74% 42%;
+    --destructive-foreground: 40 25% 97%;
+
+    --border: 30 12% 80%;
+    --input: 30 12% 74%;
+
+    --radius: 0.375rem;
+
+    /* User-configurable: Main and Accent (default red / construction blue) */
+    --main: 213 44 27;
+    --accent: 21 87 227;
+  }
+
+  .dark {
+    --background: 20 12% 8%;
+    --foreground: 38 20% 94%;
+    --card: 20 12% 10%;
+    --card-foreground: 38 20% 94%;
+    --primary-foreground: 20 12% 8%;
+    --secondary: 20 10% 16%;
+    --secondary-foreground: 38 20% 94%;
+    --muted: 20 10% 16%;
+    --muted-foreground: 30 8% 62%;
+    --accent-foreground: 20 12% 8%;
+    --destructive: 6 65% 52%;
+    --destructive-foreground: 20 12% 8%;
+    --border: 25 10% 22%;
+    --input: 25 10% 24%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  ::selection {
+    background: rgb(var(--accent) / 0.28);
+    color: hsl(var(--foreground));
+  }
+}
+
+@layer utilities {
+  /* A single hairline rule with short perpendicular ticks at each end,
+     the drafting stand-in for a divider — never a soft shadow. */
+  .dimension-rule {
+    position: relative;
+    height: 1px;
+    background: hsl(var(--border));
+  }
+  .dimension-rule::before,
+  .dimension-rule::after {
+    content: "";
+    position: absolute;
+    top: -3px;
+    width: 1px;
+    height: 7px;
+    background: hsl(var(--border));
+  }
+  .dimension-rule::before {
+    left: 0;
+  }
+  .dimension-rule::after {
+    right: 0;
+  }
+
+  /* Small crosshair registration mark, drawn from the reference blueprint
+     sheet: a plus tick with a hollow center dot. */
+  .construction-tick {
+    position: relative;
+    width: 11px;
+    height: 11px;
+  }
+  .construction-tick::before,
+  .construction-tick::after {
+    content: "";
+    position: absolute;
+    background: hsl(var(--foreground) / 0.55);
+  }
+  .construction-tick::before {
+    left: 50%;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    transform: translateX(-50%);
+  }
+  .construction-tick::after {
+    top: 50%;
+    left: 0;
+    height: 1px;
+    width: 100%;
+    transform: translateY(-50%);
+  }
+}
