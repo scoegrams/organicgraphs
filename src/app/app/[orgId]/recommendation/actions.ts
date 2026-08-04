@@ -16,7 +16,7 @@ import { generateRecommendation } from "@/lib/recommender";
 import { generateWorkspace } from "@/lib/generate-workspace";
 import { recordAudit } from "@/lib/audit";
 import { WizardAnswersSchema } from "@/lib/wizard";
-import { seedRealFromWizard, wizardContextFromAnswers } from "@/lib/demo/seed";
+import { seedRealFromWizard, seedRestaurantFromWizard, wizardContextFromAnswers } from "@/lib/demo/seed";
 
 async function loadLatest(orgId: string) {
   const rec = await prisma.recommendation.findFirst({
@@ -129,15 +129,28 @@ export async function approveAndGenerate(orgId: string): Promise<EditResult> {
 
   // Populate the company's real graph from wizard answers (people, apps, hosts,
   // features). Best-effort: a seed hiccup must never block workspace generation.
-  if (organization.industryPackKey === "software") {
+  const packKey = organization.industryPackKey;
+  if (packKey === "software" || packKey === "restaurant") {
     try {
       const session = await prisma.wizardSession.findUnique({
         where: { organizationId: orgId },
       });
       const answers = WizardAnswersSchema.parse(session?.answers ?? {});
-      const ctx = wizardContextFromAnswers(organization.name, answers);
-      const { recordsCreated, relationshipsCreated } =
-        await seedRealFromWizard(orgId, ctx);
+
+      let recordsCreated = 0;
+      let relationshipsCreated = 0;
+
+      if (packKey === "software") {
+        const ctx = wizardContextFromAnswers(organization.name, answers);
+        ({ recordsCreated, relationshipsCreated } = await seedRealFromWizard(orgId, ctx));
+      } else if (packKey === "restaurant") {
+        ({ recordsCreated, relationshipsCreated } = await seedRestaurantFromWizard(
+          orgId,
+          organization.name,
+          answers,
+        ));
+      }
+
       if (recordsCreated + relationshipsCreated > 0) {
         await recordAudit({
           organizationId: orgId,

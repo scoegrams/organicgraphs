@@ -46,6 +46,7 @@ describe("industry-pack recommendation generation", () => {
           outputs: "reports",
           deadlinesMatter: true,
           blockers: "client delays",
+          projects: [],
           services: [],
           features: [],
         },

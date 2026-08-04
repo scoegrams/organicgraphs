@@ -5,6 +5,7 @@ import { publishingPack } from "./publishing";
 import { constructionPack } from "./construction";
 import { paymentsPack } from "./payments";
 import { softwarePack } from "./software";
+import { restaurantPack } from "./restaurant";
 
 export const PACKS: IndustryPackDef[] = [
   genericPack,
@@ -12,6 +13,7 @@ export const PACKS: IndustryPackDef[] = [
   constructionPack,
   paymentsPack,
   softwarePack,
+  restaurantPack,
 ];
 
 const byKey = new Map(PACKS.map((p) => [p.key, p]));

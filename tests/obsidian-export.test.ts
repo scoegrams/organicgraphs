@@ -100,6 +100,7 @@ const sample = {
       sourceId: "rec_maya",
       targetId: "rec_proj",
       forwardLabel: "owns",
+      reverseLabel: "owned by",
     },
   ],
   exportedAt: new Date("2026-08-02T00:00:00.000Z"),
@@ -116,22 +117,21 @@ describe("obsidian export", () => {
     const files = buildObsidianVaultFiles(sample);
     expect(files.has("README.md")).toBe(true);
     expect(files.has("Home.md")).toBe(true);
-    expect(files.has("schema/manifest.json")).toBe(true);
-    expect(files.has("types/Project/_Type — Project.md")).toBe(true);
-    expect(files.has("types/Person/Maya Chen.md")).toBe(true);
-    expect(files.has("types/Project/Weston Catalogue.md")).toBe(true);
+    expect(files.has("_schema/manifest.json")).toBe(true);
+    expect(files.has("_Schema.md")).toBe(true);
+    expect(files.has("Person/Maya Chen.md")).toBe(true);
+    expect(files.has("Project/Weston Catalogue.md")).toBe(true);
 
-    const projectNote = files.get("types/Project/Weston Catalogue.md")!;
+    const projectNote = files.get("Project/Weston Catalogue.md")!;
     expect(projectNote).toContain("id: rec_proj");
     expect(projectNote).toContain("type: project");
     expect(projectNote).toContain("[[Maya Chen]]");
 
-    const typeNote = files.get("types/Person/_Type — Person.md")!;
-    expect(typeNote).toContain("[[_Type — Project]]");
-    expect(typeNote).toContain("owns");
+    const schemaNote = files.get("_Schema.md")!;
+    expect(schemaNote).toContain("owns");
 
-    const manifest = JSON.parse(files.get("schema/manifest.json")!);
-    expect(manifest.format).toBe("orggraph.obsidian-vault.v1");
+    const manifest = JSON.parse(files.get("_schema/manifest.json")!);
+    expect(manifest.format).toBe("orggraph.obsidian-vault.v2");
     expect(manifest.counts.records).toBe(2);
   });
 

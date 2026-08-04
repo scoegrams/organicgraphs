@@ -162,6 +162,53 @@ export const PERSON_ROLES = [
   "Advisor",
 ] as const;
 
+/** Roles offered when capturing restaurant staff. */
+export const RESTAURANT_STAFF_ROLES = [
+  "Owner",
+  "General manager",
+  "Head chef",
+  "Sous chef",
+  "Line cook",
+  "Pastry chef",
+  "Sommelier",
+  "Server",
+  "Bartender",
+  "Host",
+  "Expeditor",
+] as const;
+
+export type RestaurantStaffRole = (typeof RESTAURANT_STAFF_ROLES)[number];
+
+/** Dish categories for the restaurant wizard. */
+export const DISH_CATEGORIES = [
+  "Appetizer",
+  "Soup / salad",
+  "Main",
+  "Side",
+  "Dessert",
+  "Drink",
+  "Cocktail",
+  "Non-alcoholic",
+] as const;
+
+/** Common menu types for the restaurant wizard. */
+export const MENU_TYPES = [
+  "Dinner",
+  "Brunch",
+  "Lunch",
+  "Happy hour",
+  "Tasting",
+  "Bar",
+  "Seasonal",
+  "Catering",
+] as const;
+
+/** Known POS systems for quick-select in the restaurant wizard. */
+export const POS_SYSTEMS = ["Toast", "Square", "Lightspeed", "Clover", "Revel", "TouchBistro"] as const;
+
+/** Known reservation platforms. */
+export const RESERVATION_SYSTEMS = ["OpenTable", "Resy", "SevenRooms", "Tock", "Yelp Reservations"] as const;
+
 export const PARTICIPANT_GROUPS = [
   "employees",
   "departments",
@@ -218,6 +265,19 @@ export const WizardAnswersSchema = z.object({
       outputs: z.string().max(1000).optional(),
       deadlinesMatter: z.boolean().default(false),
       blockers: z.string().max(1000).optional(),
+      /**
+       * Projects / apps this company builds — each becomes a Product node, and
+       * an optional client name links Client → Project (customer → product).
+       */
+      projects: z
+        .array(
+          z.object({
+            name: z.string().trim().max(200),
+            /** Name of the client this project is built for (creates a Customer). */
+            client: z.string().trim().max(200).optional(),
+          }),
+        )
+        .default([]),
       /** Names of the services / apps this company runs (e.g. "Web app", "API"). */
       services: z.array(z.string()).default([]),
       /** Product features and how they connect (owner + the service they run in). */
@@ -225,10 +285,14 @@ export const WizardAnswersSchema = z.object({
         .array(
           z.object({
             name: z.string().trim().max(200),
+            /** Name of the captured project (product) this feature belongs to. */
+            project: z.string().trim().max(200).optional(),
             /** Name of a captured service this feature runs in (ref by name). */
             service: z.string().trim().max(200).optional(),
             /** Name of a captured person who owns this feature (ref by name). */
             owner: z.string().trim().max(200).optional(),
+            /** Names of other captured features this one depends on. */
+            dependsOn: z.array(z.string()).optional(),
           }),
         )
         .default([]),
@@ -255,15 +319,48 @@ export const WizardAnswersSchema = z.object({
       requireAiApproval: z.boolean().default(true),
     })
     .default({}),
+  /**
+   * Restaurant / hospitality-specific answers.
+   * Stored alongside the shared answers and ignored for non-restaurant packs.
+   */
+  restaurant: z
+    .object({
+      /**
+       * Names of food / beverage suppliers (produce, meat, seafood, wine...).
+       * Each name becomes a Supplier node.
+       */
+      suppliers: z
+        .array(
+          z.object({
+            name: z.string().trim().max(200),
+            category: z.string().trim().max(100).optional(),
+          }),
+        )
+        .default([]),
+      /**
+       * Operational software vendors — POS, reservations, scheduling, delivery,
+       * payroll, etc. All lumped into one list; each becomes a Vendor node
+       * linked to every location via location_uses_vendor.
+       */
+      operationalVendors: z
+        .array(
+          z.object({
+            name: z.string().trim().max(200),
+            category: z.string().trim().max(100).optional(),
+          }),
+        )
+        .default([]),
+    })
+    .default({}),
 });
 
 export type WizardAnswers = z.infer<typeof WizardAnswersSchema>;
 
 export const WIZARD_STEPS = [
   { key: "organization", label: "Organization" },
-  { key: "participants", label: "Participants" },
-  { key: "value", label: "Value & work" },
+  { key: "participants", label: "People" },
   { key: "systems", label: "Systems" },
+  { key: "value", label: "Value & work" },
   { key: "security", label: "Security" },
   { key: "review", label: "Recommendation" },
 ] as const;

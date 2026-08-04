@@ -29,8 +29,16 @@ export interface WizardContext {
   teamTools: TeamTool[];
   /** Domain registrar / DNS keys selected in the wizard, e.g. ["spaceship", "cloudflare"]. */
   domainRegistrars: DomainRegistrar[];
-  /** Product features and how they connect (owner + the service they run in). */
-  features: { name: string; service?: string; owner?: string }[];
+  /** Projects / apps this company builds; each becomes a Product, optionally for a client. */
+  projects: { name: string; client?: string }[];
+  /** Product features and how they connect (project, owner, service, dependencies). */
+  features: {
+    name: string;
+    project?: string;
+    service?: string;
+    owner?: string;
+    dependsOn?: string[];
+  }[];
 }
 
 export function emptyWizardContext(): WizardContext {
@@ -41,6 +49,7 @@ export function emptyWizardContext(): WizardContext {
     hostingProviders: [],
     teamTools: [],
     domainRegistrars: [],
+    projects: [],
     features: [],
   };
 }
@@ -57,6 +66,7 @@ export function wizardContextFromAnswers(
     hostingProviders: answers.systems.hostingProviders,
     teamTools: answers.systems.teamTools,
     domainRegistrars: answers.systems.domainRegistrars,
+    projects: answers.valueAndWork.projects,
     features: answers.valueAndWork.features,
   };
 }
@@ -98,21 +108,59 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
   const records: DemoRecord[] = [];
   const relationships: DemoRelationship[] = [];
 
-  // ── Product anchor ──────────────────────────────────────────────────────────
-  const productId = "prod_main";
-  records.push({
-    localId: productId,
-    recordTypeKey: "product",
-    displayName: ctx.orgName?.trim() || "Company",
-  });
+  // ── Projects (Products) + Clients (Customers) ────────────────────────────────
+  // Each named project becomes a Product; its client becomes a Customer linked
+  // via customer_client_of_product. If no projects are named, a single Product
+  // named after the org anchors everything (backwards compatible).
+  // All name→localId maps are keyed by a normalized (trimmed, lower-cased) name
+  // so a person/service/project referenced elsewhere resolves to the SAME node
+  // regardless of casing or spacing — this is what prevents "two Vance" records.
+  const norm = (s: string) => s.trim().toLowerCase();
+
+  const productIdByName = new Map<string, string>();
+  const customerIdByName = new Map<string, string>();
+  const namedProjects = (ctx.projects ?? []).filter((p) => p.name.trim());
+
+  if (namedProjects.length > 0) {
+    namedProjects.forEach((p, i) => {
+      const name = p.name.trim();
+      if (productIdByName.has(norm(name))) return; // dedup duplicate project names
+      const localId = `prod_${i}`;
+      productIdByName.set(norm(name), localId);
+      records.push({ localId, recordTypeKey: "product", displayName: name });
+
+      const client = p.client?.trim();
+      if (client) {
+        let custId = customerIdByName.get(norm(client));
+        if (!custId) {
+          custId = `cust_${customerIdByName.size}`;
+          customerIdByName.set(norm(client), custId);
+          records.push({ localId: custId, recordTypeKey: "customer", displayName: client });
+        }
+        relationships.push({
+          relationshipTypeKey: "customer_client_of_product",
+          sourceLocalId: custId,
+          targetLocalId: localId,
+        });
+      }
+    });
+  } else {
+    const localId = "prod_main";
+    const name = ctx.orgName?.trim() || "Company";
+    productIdByName.set(norm(name), localId);
+    records.push({ localId, recordTypeKey: "product", displayName: name });
+  }
+
+  // The anchor product carries org-level vendor dependencies.
+  const productId = records.find((r) => r.recordTypeKey === "product")!.localId;
 
   // ── People ──────────────────────────────────────────────────────────────────
   const personIdByName = new Map<string, string>();
   ctx.people.forEach((p, i) => {
     const name = p.name.trim();
-    if (!name) return;
+    if (!name || personIdByName.has(norm(name))) return; // dedup duplicate people
     const localId = `p_${i}`;
-    personIdByName.set(name, localId);
+    personIdByName.set(norm(name), localId);
     records.push({
       localId,
       recordTypeKey: "person",
@@ -121,13 +169,26 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
     });
   });
 
+  // Resolve an owner name to a Person, creating one on demand and reusing it so
+  // an owner typed only on a feature never spawns a second Person node.
+  const ensurePerson = (raw: string | undefined): string | undefined => {
+    const name = raw?.trim();
+    if (!name) return undefined;
+    const existing = personIdByName.get(norm(name));
+    if (existing) return existing;
+    const localId = `p_owner_${personIdByName.size}`;
+    personIdByName.set(norm(name), localId);
+    records.push({ localId, recordTypeKey: "person", displayName: name, values: {} });
+    return localId;
+  };
+
   // ── Services ──────────────────────────────────────────────────────────────────
   const serviceIdByName = new Map<string, string>();
   ctx.services.forEach((name, i) => {
     const clean = name.trim();
-    if (!clean) return;
+    if (!clean || serviceIdByName.has(norm(clean))) return; // dedup duplicate services
     const localId = `svc_${i}`;
-    serviceIdByName.set(clean, localId);
+    serviceIdByName.set(norm(clean), localId);
     records.push({
       localId,
       recordTypeKey: "service",
@@ -178,10 +239,12 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
   records.push(...allVendorRecords);
 
   // ── Features ──────────────────────────────────────────────────────────────────
+  const featureIdByName = new Map<string, string>();
   ctx.features.forEach((f, i) => {
     const name = f.name.trim();
-    if (!name) return;
+    if (!name || featureIdByName.has(norm(name))) return; // dedup duplicate features
     const localId = `f_${i}`;
+    featureIdByName.set(norm(name), localId);
     records.push({
       localId,
       recordTypeKey: "feature",
@@ -189,12 +252,15 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
       status: "Planned",
       values: { status: "Planned" },
     });
+    // Belongs to its named project's product, else the anchor product.
+    const prodId =
+      (f.project ? productIdByName.get(norm(f.project)) : undefined) ?? productId;
     relationships.push({
       relationshipTypeKey: "feature_belongs_to_product",
       sourceLocalId: localId,
-      targetLocalId: productId,
+      targetLocalId: prodId,
     });
-    const svcId = f.service ? serviceIdByName.get(f.service.trim()) : undefined;
+    const svcId = f.service ? serviceIdByName.get(norm(f.service)) : undefined;
     if (svcId) {
       relationships.push({
         relationshipTypeKey: "feature_in_service",
@@ -202,7 +268,7 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
         targetLocalId: svcId,
       });
     }
-    const ownerId = f.owner ? personIdByName.get(f.owner.trim()) : undefined;
+    const ownerId = ensurePerson(f.owner);
     if (ownerId) {
       relationships.push({
         relationshipTypeKey: "person_owns_feature",
@@ -212,14 +278,37 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
     }
   });
 
-  // ── Category-aware vendor wiring ───────────────────────────────────────────────
-  const monitoringVendorIds = allVendorRecords
-    .filter((v) => cat(v) === "Monitoring")
-    .map((v) => v.localId);
-  const personalToolVendorIds = allVendorRecords
+  // ── Feature → feature dependencies (wired after all features exist) ───────────
+  ctx.features.forEach((f) => {
+    const fromId = featureIdByName.get(norm(f.name));
+    if (!fromId) return;
+    for (const dep of f.dependsOn ?? []) {
+      const toId = featureIdByName.get(norm(dep));
+      if (toId && toId !== fromId) {
+        relationships.push({
+          relationshipTypeKey: "feature_depends_on_feature",
+          sourceLocalId: fromId,
+          targetLocalId: toId,
+        });
+      }
+    }
+  });
+
+  // ── Category-aware vendor wiring ─────────────────────────────────────────
+  // Only auto-wire relationships that are structurally true and not ambiguous:
+  //   service → hosting vendor  (infra fact — the service literally runs there)
+  //   product → infra vendors   (payments, email, domain, auth power the product)
+  //
+  // Intentionally NOT auto-wired (too noisy, users must connect manually):
+  //   person → dev tools / comms / design  (not every person uses every tool)
+  //   service → monitoring tools           (not every service has the same monitors)
+  // These vendors still appear as nodes and can be linked from the graph builder.
+
+  const infraVendorIds = allVendorRecords
     .filter((v) => {
       const c = cat(v);
-      return c === "Dev tools" || c === "Comms" || c === "Design";
+      return c === "Hosting" || c === "Payments" || c === "Email" ||
+             c === "Domain" || c === "Auth";
     })
     .map((v) => v.localId);
 
@@ -230,23 +319,10 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
     relationships.push({ relationshipTypeKey: "service_hosted_on_vendor", sourceLocalId: svcId, targetLocalId: vendorId });
   });
 
-  // service_monitored_by_vendor — every service → every monitoring tool
-  serviceLocalIds.forEach((svcId) => {
-    monitoringVendorIds.forEach((vendorId) => {
-      relationships.push({ relationshipTypeKey: "service_monitored_by_vendor", sourceLocalId: svcId, targetLocalId: vendorId });
-    });
-  });
-
-  // product_uses_vendor — product → every vendor
-  allVendorRecords.forEach((v) => {
-    relationships.push({ relationshipTypeKey: "product_uses_vendor", sourceLocalId: productId, targetLocalId: v.localId });
-  });
-
-  // person_uses_vendor — each person → dev / comms / design tools
-  [...personIdByName.values()].forEach((personId) => {
-    personalToolVendorIds.forEach((vendorId) => {
-      relationships.push({ relationshipTypeKey: "person_uses_vendor", sourceLocalId: personId, targetLocalId: vendorId });
-    });
+  // product_uses_vendor — only infra vendors (hosting, payments, email, domain, auth)
+  // Dev tools / comms / design tools exist as nodes but aren't auto-wired to the product.
+  infraVendorIds.forEach((vendorId) => {
+    relationships.push({ relationshipTypeKey: "product_uses_vendor", sourceLocalId: productId, targetLocalId: vendorId });
   });
 
   return {
@@ -258,51 +334,28 @@ export function buildRealDataset(ctx: WizardContext): DemoDataset {
 }
 
 /**
- * Build a personalised SAMPLE (fictional) dataset from wizard answers, layering
- * the user's real services/hosting/tools on top of the stock demo company.
- * If the wizard answers are empty we fall back to the stock demo data.
+ * Build a personalised SAMPLE dataset from wizard answers, replacing the demo's
+ * placeholder vendors/services with the user's real choices if they provided them.
+ * Falls back to the stock demo when no wizard answers exist.
  */
 function buildSampleDataset(ctx: WizardContext): DemoDataset {
   const base = softwareDemoDataset();
 
-  const hasServices = ctx.services.length > 0;
   const hasHosting = ctx.hostingProviders.length > 0;
   const hasTools = ctx.teamTools.length > 0;
-  const hasDomain = ctx.domainRegistrars.length > 0;
 
-  // Nothing personalised? Return stock demo as-is.
-  if (!hasServices && !hasHosting && !hasTools && !hasDomain) return base;
+  // Nothing personalised → return stock demo as-is.
+  if (!hasHosting && !hasTools) return base;
 
-  // Keep all non-service, non-vendor records from the base dataset.
-  const nonServiceRecords = base.records.filter(
-    (r) => r.recordTypeKey !== "service" && r.recordTypeKey !== "vendor",
-  );
-  // Drop vendor-related base relationships; we rebuild them below.
-  const baseRelationships = base.relationships.filter(
-    (rel) =>
-      !["service_hosted_on_vendor", "service_monitored_by_vendor",
-        "repository_hosted_on_vendor", "product_uses_vendor", "person_uses_vendor"].includes(
-        rel.relationshipTypeKey,
-      ),
+  // Replace demo vendors with the user's real choices.
+  const nonVendorRecords = base.records.filter((r) => r.recordTypeKey !== "vendor");
+  const nonVendorRels = base.relationships.filter(
+    (r) =>
+      !["product_uses_vendor", "person_uses_vendor", "service_hosted_on_vendor",
+        "service_monitored_by_vendor", "repository_hosted_on_vendor"].includes(r.relationshipTypeKey),
   );
 
-  const serviceRecords: DemoRecord[] = hasServices
-    ? ctx.services.map((name, i) => ({
-        localId: `svc_${i}`,
-        recordTypeKey: "service",
-        displayName: name,
-        status: "Healthy",
-        values: { status: "Healthy" },
-      }))
-    : base.records.filter((r) => r.recordTypeKey === "service");
-
-  const serviceLocalIds = serviceRecords.map((r) => r.localId);
-
-  const repoLocalIds = nonServiceRecords
-    .filter((r) => r.recordTypeKey === "repository")
-    .map((r) => r.localId);
-
-  const hostingVendorRecords: DemoRecord[] = hasHosting
+  const hostingVendors: DemoRecord[] = hasHosting
     ? ctx.hostingProviders.map((key) => {
         const m = HOSTING_PROVIDER_META[key];
         return {
@@ -313,9 +366,9 @@ function buildSampleDataset(ctx: WizardContext): DemoDataset {
           values: { category: "Hosting", cost: m.cost, cycle: m.cycle, ...(m.url ? { url: m.url } : {}), status: "Active" },
         };
       })
-    : base.records.filter((r) => r.recordTypeKey === "vendor" && cat(r) === "Hosting");
+    : [];
 
-  const toolVendorRecords: DemoRecord[] = hasTools
+  const toolVendors: DemoRecord[] = hasTools
     ? ctx.teamTools.map((key) => {
         const m = TEAM_TOOL_META[key];
         return {
@@ -326,99 +379,49 @@ function buildSampleDataset(ctx: WizardContext): DemoDataset {
           values: { category: m.category, cost: m.cost, cycle: m.cycle, url: m.url, status: "Active" },
         };
       })
-    : base.records.filter(
-        (r) => r.recordTypeKey === "vendor" && cat(r) !== "Hosting" && cat(r) !== "Domain",
-      );
+    : [];
 
-  const domainVendorRecords: DemoRecord[] = ctx.domainRegistrars.map((key) => {
-    const m = DOMAIN_REGISTRAR_META[key];
-    return {
-      localId: `v_domain_${key}`,
-      recordTypeKey: "vendor",
-      displayName: m.name,
-      status: "Active",
-      values: { category: "Domain", cost: m.cost, cycle: m.cycle, url: m.url, status: "Active" },
-    };
-  });
+  const allVendors = [...hostingVendors, ...toolVendors];
 
-  const allVendorRecords = [...hostingVendorRecords, ...toolVendorRecords, ...domainVendorRecords];
-
-  const productId = nonServiceRecords.find((r) => r.recordTypeKey === "product")?.localId ?? "prod_studio";
-  const personLocalIds = nonServiceRecords
+  const productId = base.records.find((r) => r.recordTypeKey === "product")?.localId ?? "prod";
+  const personIds = base.records
     .filter((r) => r.recordTypeKey === "person")
     .map((r) => r.localId);
 
-  const monitoringVendorIds = allVendorRecords
-    .filter((v) => cat(v) === "Monitoring")
+  const devToolIds = allVendors
+    .filter((v) => (v.values as Record<string, unknown>)?.category === "Dev tools")
     .map((v) => v.localId);
-  const sourceControlVendorIds = toolVendorRecords
-    .filter((v) => ["GitHub", "GitLab"].includes(v.displayName))
-    .map((v) => v.localId);
-  const personalToolVendorIds = allVendorRecords
-    .filter((v) => {
-      const c = cat(v);
-      return c === "Dev tools" || c === "Comms" || c === "Design";
-    })
+  const hostingIds = allVendors
+    .filter((v) => (v.values as Record<string, unknown>)?.category === "Hosting")
     .map((v) => v.localId);
 
-  const hostingRelationships: DemoRelationship[] = serviceLocalIds.flatMap((svcId, i) => {
-    if (hostingVendorRecords.length === 0) return [];
-    const vendorId = hostingVendorRecords[i % hostingVendorRecords.length]!.localId;
-    return [{ relationshipTypeKey: "service_hosted_on_vendor", sourceLocalId: svcId, targetLocalId: vendorId }];
-  });
-
-  const monitoringRelationships: DemoRelationship[] = serviceLocalIds.flatMap((svcId) =>
-    monitoringVendorIds.map((vendorId) => ({
-      relationshipTypeKey: "service_monitored_by_vendor",
-      sourceLocalId: svcId,
-      targetLocalId: vendorId,
+  const newRels: DemoRelationship[] = [
+    ...allVendors.map((v) => ({
+      relationshipTypeKey: "product_uses_vendor",
+      sourceLocalId: productId,
+      targetLocalId: v.localId,
     })),
-  );
-
-  const repoHostingRelationships: DemoRelationship[] = repoLocalIds.flatMap((repoId) =>
-    sourceControlVendorIds.map((vendorId) => ({
-      relationshipTypeKey: "repository_hosted_on_vendor",
-      sourceLocalId: repoId,
-      targetLocalId: vendorId,
-    })),
-  );
-
-  const productVendorRelationships: DemoRelationship[] = allVendorRecords.map((v) => ({
-    relationshipTypeKey: "product_uses_vendor",
-    sourceLocalId: productId,
-    targetLocalId: v.localId,
-  }));
-
-  const personToolRelationships: DemoRelationship[] = personLocalIds.flatMap((personId) =>
-    personalToolVendorIds.map((vendorId) => ({
-      relationshipTypeKey: "person_uses_vendor",
-      sourceLocalId: personId,
-      targetLocalId: vendorId,
-    })),
-  );
-
-  const records = [...nonServiceRecords, ...serviceRecords, ...allVendorRecords];
-
-  const relationships = [
-    ...baseRelationships,
-    ...hostingRelationships,
-    ...monitoringRelationships,
-    ...repoHostingRelationships,
-    ...productVendorRelationships,
-    ...personToolRelationships,
+    ...personIds.flatMap((personId) =>
+      devToolIds.map((vendorId) => ({
+        relationshipTypeKey: "person_uses_vendor",
+        sourceLocalId: personId,
+        targetLocalId: vendorId,
+      })),
+    ),
+    // If the user has services, host the first one on the first hosting provider.
+    ...(ctx.services.length > 0 && hostingIds.length > 0
+      ? [{ relationshipTypeKey: "service_hosted_on_vendor", sourceLocalId: "svc_0", targetLocalId: hostingIds[0]! }]
+      : []),
   ];
 
-  const requiredRelationshipTypeKeys = [
-    ...base.requiredRelationshipTypeKeys,
-    "service_monitored_by_vendor",
-    "repository_hosted_on_vendor",
-  ].filter((v, i, a) => a.indexOf(v) === i);
+  const records = [...nonVendorRecords, ...allVendors];
+  const relationships = [...nonVendorRels, ...newRels];
 
   return {
     records,
     relationships,
-    requiredRecordTypeKeys: base.requiredRecordTypeKeys,
-    requiredRelationshipTypeKeys,
+    requiredRecordTypeKeys: [...new Set(records.map((r) => r.recordTypeKey))],
+    requiredRelationshipTypeKeys: [...new Set(relationships.map((r) => r.relationshipTypeKey))],
   };
 }
 
@@ -579,6 +582,224 @@ export async function seedRealFromWizard(
   ctx: WizardContext,
 ): Promise<{ recordsCreated: number; relationshipsCreated: number }> {
   return seedDataset(organizationId, softwarePack, buildRealDataset(ctx));
+}
+
+/**
+ * Build a restaurant's real graph from wizard answers.
+ *
+ * Canonical hierarchy:
+ *   Location → Team → Staff → Dish (chef_owns_dish)
+ *   Dish → Menu → Location
+ *   Supplier → Ingredient ← Dish
+ *   Location → Vendor (operational software)
+ *
+ * Staff are auto-grouped into functional teams (Kitchen, Front of house,
+ * Management) so the graph shows: Location → Team → individual Staff members
+ * rather than a flat list of people hanging directly off the location.
+ */
+export function buildRestaurantDataset(
+  orgName: string,
+  answers: WizardAnswers,
+): DemoDataset {
+  const records: DemoRecord[] = [];
+  const relationships: DemoRelationship[] = [];
+  const norm = (s: string) => s.trim().toLowerCase();
+
+  // ── Locations ────────────────────────────────────────────────────────────────
+  const locationIdByName = new Map<string, string>();
+  (answers.organization.locations ?? []).forEach((name, i) => {
+    const clean = name.trim();
+    if (!clean || locationIdByName.has(norm(clean))) return;
+    const localId = `loc_${i}`;
+    locationIdByName.set(norm(clean), localId);
+    records.push({ localId, recordTypeKey: "location", displayName: clean });
+  });
+  if (locationIdByName.size === 0) {
+    const name = orgName.trim() || "Main location";
+    locationIdByName.set(norm(name), "loc_main");
+    records.push({ localId: "loc_main", recordTypeKey: "location", displayName: name });
+  }
+  const locationIds = [...locationIdByName.values()];
+
+  // ── Staff + Team auto-grouping ─────────────────────────────────────────────
+  // Roles that belong to each functional team.
+  const KITCHEN_ROLES = new Set([
+    "head chef", "sous chef", "line cook", "pastry chef", "sommelier",
+  ]);
+  const FOH_ROLES = new Set([
+    "server", "bartender", "host", "expeditor",
+  ]);
+  const MGMT_ROLES = new Set([
+    "owner", "general manager",
+  ]);
+
+  function teamTypeForRole(role: string | undefined): string | null {
+    const r = role?.trim().toLowerCase() ?? "";
+    if (KITCHEN_ROLES.has(r)) return "Kitchen";
+    if (FOH_ROLES.has(r)) return "Front of house";
+    if (MGMT_ROLES.has(r)) return "Management";
+    return null;
+  }
+
+  // Create team nodes (only the ones actually needed for the captured staff).
+  const teamIdByType = new Map<string, string>();
+  function ensureTeam(type: string): string {
+    const existing = teamIdByType.get(type);
+    if (existing) return existing;
+    const localId = `team_${teamIdByType.size}`;
+    teamIdByType.set(type, localId);
+    records.push({
+      localId,
+      recordTypeKey: "team",
+      displayName: `${type} team`,
+      values: { type },
+    });
+    // Link team to every location.
+    for (const locId of locationIds) {
+      relationships.push({
+        relationshipTypeKey: "team_at_location",
+        sourceLocalId: localId,
+        targetLocalId: locId,
+      });
+    }
+    return localId;
+  }
+
+  const staffIdByName = new Map<string, string>();
+  (answers.participants.people ?? []).forEach((p, i) => {
+    const name = p.name.trim();
+    if (!name || staffIdByName.has(norm(name))) return;
+    const localId = `staff_${i}`;
+    staffIdByName.set(norm(name), localId);
+    records.push({
+      localId,
+      recordTypeKey: "staff",
+      displayName: name,
+      values: p.role ? { role: p.role } : {},
+    });
+    // staff → team
+    const teamType = teamTypeForRole(p.role);
+    if (teamType) {
+      const teamId = ensureTeam(teamType);
+      relationships.push({
+        relationshipTypeKey: "staff_in_team",
+        sourceLocalId: localId,
+        targetLocalId: teamId,
+      });
+    } else {
+      // Staff with unrecognised roles link directly to locations.
+      for (const locId of locationIds) {
+        relationships.push({
+          relationshipTypeKey: "staff_works_at",
+          sourceLocalId: localId,
+          targetLocalId: locId,
+        });
+      }
+    }
+  });
+
+  // Resolve a chef name on demand.
+  const ensureStaff = (raw: string | undefined): string | undefined => {
+    const name = raw?.trim();
+    if (!name) return undefined;
+    const existing = staffIdByName.get(norm(name));
+    if (existing) return existing;
+    const localId = `staff_chef_${staffIdByName.size}`;
+    staffIdByName.set(norm(name), localId);
+    records.push({ localId, recordTypeKey: "staff", displayName: name, values: { role: "Head chef" } });
+    const kitchenId = ensureTeam("Kitchen");
+    relationships.push({ relationshipTypeKey: "staff_in_team", sourceLocalId: localId, targetLocalId: kitchenId });
+    return localId;
+  };
+
+  // ── Menus ─────────────────────────────────────────────────────────────────
+  const menuIdByName = new Map<string, string>();
+  (answers.valueAndWork.projects ?? []).forEach((p, i) => {
+    const name = p.name.trim();
+    if (!name || menuIdByName.has(norm(name))) return;
+    const localId = `menu_${i}`;
+    menuIdByName.set(norm(name), localId);
+    records.push({
+      localId,
+      recordTypeKey: "menu",
+      displayName: name,
+      status: "Active",
+      values: p.client ? { kind: p.client, status: "Active" } : { status: "Active" },
+    });
+    for (const locId of locationIds) {
+      relationships.push({ relationshipTypeKey: "menu_at_location", sourceLocalId: localId, targetLocalId: locId });
+    }
+  });
+
+  // ── Dishes ─────────────────────────────────────────────────────────────────
+  (answers.valueAndWork.features ?? []).forEach((f, i) => {
+    const name = f.name.trim();
+    if (!name) return;
+    const localId = `dish_${i}`;
+    records.push({
+      localId,
+      recordTypeKey: "dish",
+      displayName: name,
+      status: "Live",
+      values: { status: "Live", ...(f.service ? { category: f.service } : {}) },
+    });
+    const menuId = f.project ? menuIdByName.get(norm(f.project)) : undefined;
+    if (menuId) {
+      relationships.push({ relationshipTypeKey: "dish_on_menu", sourceLocalId: localId, targetLocalId: menuId });
+    }
+    const chefId = ensureStaff(f.owner);
+    if (chefId) {
+      relationships.push({ relationshipTypeKey: "chef_owns_dish", sourceLocalId: chefId, targetLocalId: localId });
+    }
+  });
+
+  // ── Suppliers ─────────────────────────────────────────────────────────────
+  (answers.restaurant.suppliers ?? []).forEach((s, i) => {
+    const name = s.name.trim();
+    if (!name) return;
+    records.push({
+      localId: `sup_${i}`,
+      recordTypeKey: "supplier",
+      displayName: name,
+      status: "Active",
+      values: { status: "Active", ...(s.category ? { category: s.category } : {}) },
+    });
+  });
+
+  // ── Operational vendors (Toast, OpenTable, etc.) ──────────────────────────
+  // All lumped together — each gets a vendor node linked to every location.
+  (answers.restaurant.operationalVendors ?? []).forEach((v, i) => {
+    const name = v.name.trim();
+    if (!name) return;
+    const localId = `op_vendor_${i}`;
+    records.push({
+      localId,
+      recordTypeKey: "vendor",
+      displayName: name,
+      status: "Active",
+      values: { status: "Active", ...(v.category ? { category: v.category } : {}) },
+    });
+    for (const locId of locationIds) {
+      relationships.push({ relationshipTypeKey: "location_uses_vendor", sourceLocalId: locId, targetLocalId: localId });
+    }
+  });
+
+  return {
+    records,
+    relationships,
+    requiredRecordTypeKeys: [...new Set(records.map((r) => r.recordTypeKey))],
+    requiredRelationshipTypeKeys: [...new Set(relationships.map((r) => r.relationshipTypeKey))],
+  };
+}
+
+/** Seed a restaurant's real graph from wizard answers. */
+export async function seedRestaurantFromWizard(
+  organizationId: string,
+  orgName: string,
+  answers: WizardAnswers,
+): Promise<{ recordsCreated: number; relationshipsCreated: number }> {
+  const { restaurantPack } = await import("@/lib/packs/restaurant");
+  return seedDataset(organizationId, restaurantPack, buildRestaurantDataset(orgName, answers));
 }
 
 /** Seed the fictional "sample company" for exploration (optionally personalised). */

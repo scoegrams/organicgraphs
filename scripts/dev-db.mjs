@@ -129,9 +129,42 @@ async function ensureAppDb() {
   }
 }
 
+/** Enable pg_trgm + GIN index for fuzzy record name search (idempotent). */
+async function ensureExtensions() {
+  const client = new pg.Client({
+    host: HOST,
+    port: PORT,
+    user: USER,
+    password: PASSWORD,
+    database: DATABASE,
+  });
+  await client.connect();
+  try {
+    // Record may not exist yet on a brand-new cluster (before prisma db push).
+    // Create the extension always; create the index only when the table is present.
+    await client.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+    const table = await client.query(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'Record'`,
+    );
+    if ((table.rowCount ?? 0) > 0) {
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS "Record_displayName_trgm"
+          ON "Record"
+          USING gin ("displayName" gin_trgm_ops)
+      `);
+      console.log("[dev-db] pg_trgm ready (extension + Record.displayName GIN index)");
+    } else {
+      console.log("[dev-db] pg_trgm extension ready (index deferred until schema push)");
+    }
+  } finally {
+    await client.end();
+  }
+}
+
 async function start() {
   if (await portOpen()) {
     console.log(`[dev-db] already listening on ${HOST}:${PORT}`);
+    await ensureExtensions();
     return;
   }
   if (!existsSync(path.join(DATA_DIR, "PG_VERSION"))) {
@@ -140,6 +173,7 @@ async function start() {
   console.log("[dev-db] starting postgres daemon…");
   startDaemon();
   await ensureAppDb();
+  await ensureExtensions();
   console.log(
     `[dev-db] ready on ${HOST}:${PORT} (db=${DATABASE}, user=${USER}) — daemonized, survives this process`,
   );
@@ -156,7 +190,10 @@ async function stop() {
 }
 
 async function ensure() {
-  if (await portOpen()) return;
+  if (await portOpen()) {
+    await ensureExtensions();
+    return;
+  }
   await start();
 }
 

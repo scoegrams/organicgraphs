@@ -94,6 +94,9 @@ export async function GET(
       forwardLabel:
         relTypeByKey.get(rel.relationshipTypeKey)?.forwardLabel ??
         rel.relationshipTypeKey,
+      reverseLabel:
+        relTypeByKey.get(rel.relationshipTypeKey)?.reverseLabel ??
+        rel.relationshipTypeKey,
     })),
   });
 

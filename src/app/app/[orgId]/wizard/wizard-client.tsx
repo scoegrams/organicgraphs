@@ -241,22 +241,21 @@ export function WizardClient({
                 />
               </Field>
               <Field
-                label="Services or apps you run"
-                hint="Each row becomes a Service node in your graph. e.g. Web app, API, Background worker."
+                label="Projects / apps you build"
+                hint="Each becomes a Product node. Add the client it's built for to link Client → Project (e.g. “Car Nodes App” for “Toyota”)."
               >
-                <StageList
-                  stages={answers.valueAndWork.services}
-                  onChange={(services) => patch("valueAndWork", { services })}
-                  addLabel="+ Add service"
-                  placeholders={["e.g. Web app", "e.g. API", "e.g. Background worker"]}
+                <ProjectList
+                  projects={answers.valueAndWork.projects}
+                  onChange={(projects) => patch("valueAndWork", { projects })}
                 />
               </Field>
               <Field
                 label="Features and how they connect"
-                hint="Each feature becomes a node linked to the service it runs in and the person who owns it."
+                hint="Each feature becomes a node linked to its project, the service it runs in, its owner, and the features it depends on."
               >
                 <FeatureList
                   features={answers.valueAndWork.features}
+                  projects={answers.valueAndWork.projects.map((p) => p.name)}
                   services={answers.valueAndWork.services}
                   people={answers.participants.people.map((p) => p.name)}
                   onChange={(features) => patch("valueAndWork", { features })}
@@ -293,10 +292,23 @@ export function WizardClient({
 
           {stepKey === "systems" && (
             <>
-              <p className="text-sm text-muted-foreground">
-                Where does information currently live? These are configuration
-                choices — no external systems are connected in this MVP.
-              </p>
+              <Field
+                label="Services or apps you run"
+                hint="Each row becomes a Service node. Define these before your features so each feature can point at the service it runs in. e.g. Web app, API, Background worker."
+              >
+                <StageList
+                  stages={answers.valueAndWork.services}
+                  onChange={(services) => patch("valueAndWork", { services })}
+                  addLabel="+ Add service"
+                  placeholders={["e.g. Web app", "e.g. API", "e.g. Background worker"]}
+                />
+              </Field>
+              <div className="border-t pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Where does information currently live? These are configuration
+                  choices — no external systems are connected in this MVP.
+                </p>
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {SYSTEMS.map((s) => (
                   <CheckRow
@@ -661,33 +673,28 @@ function PeopleList({
   );
 }
 
-type FeatureRow = { name: string; service?: string; owner?: string };
+type ProjectRow = { name: string; client?: string };
 
-/** Feature capture — name + the service it runs in + the person who owns it. */
-function FeatureList({
-  features,
-  services,
-  people,
+/** Project capture — the app you build (Product) + the client it's built for. */
+function ProjectList({
+  projects,
   onChange,
 }: {
-  features: FeatureRow[];
-  services: string[];
-  people: string[];
-  onChange: (features: FeatureRow[]) => void;
+  projects: ProjectRow[];
+  onChange: (projects: ProjectRow[]) => void;
 }) {
-  const [rows, setRows] = useState<FeatureRow[]>(() =>
-    features.length > 0 ? [...features] : [{ name: "" }],
+  const [rows, setRows] = useState<ProjectRow[]>(() =>
+    projects.length > 0 ? [...projects] : [{ name: "" }],
   );
 
-  function commit(next: FeatureRow[]) {
+  function commit(next: ProjectRow[]) {
     setRows(next.length > 0 ? next : [{ name: "" }]);
     onChange(
       next
-        .filter((f) => f.name.trim())
-        .map((f) => ({
-          name: f.name.trim(),
-          ...(f.service ? { service: f.service } : {}),
-          ...(f.owner ? { owner: f.owner } : {}),
+        .filter((p) => p.name.trim())
+        .map((p) => ({
+          name: p.name.trim(),
+          ...(p.client?.trim() ? { client: p.client.trim() } : {}),
         })),
     );
   }
@@ -705,54 +712,227 @@ function FeatureList({
                 next[i] = { ...next[i]!, name: e.target.value };
                 commit(next);
               }}
-              placeholder="Feature name"
-              aria-label={`Feature ${i + 1} name`}
+              placeholder="Project / app name"
+              aria-label={`Project ${i + 1} name`}
             />
-            <select
-              className="h-10 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
-              value={row.service ?? ""}
+            <span className="text-xs text-muted-foreground" aria-hidden="true">
+              for
+            </span>
+            <Input
+              className="w-40 shrink-0"
+              value={row.client ?? ""}
               onChange={(e) => {
                 const next = [...rows];
-                next[i] = { ...next[i]!, service: e.target.value || undefined };
+                next[i] = { ...next[i]!, client: e.target.value || undefined };
                 commit(next);
               }}
-              aria-label={`Feature ${i + 1} service`}
-            >
-              <option value="">Runs in…</option>
-              {services.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
-              className="h-10 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
-              value={row.owner ?? ""}
-              onChange={(e) => {
-                const next = [...rows];
-                next[i] = { ...next[i]!, owner: e.target.value || undefined };
-                commit(next);
-              }}
-              aria-label={`Feature ${i + 1} owner`}
-            >
-              <option value="">Owner…</option>
-              {people.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+              placeholder="Client (optional)"
+              aria-label={`Project ${i + 1} client`}
+            />
             <button
               type="button"
               onClick={() => commit(rows.filter((_, j) => j !== i))}
               disabled={rows.length <= 1 && !row.name.trim()}
               className="shrink-0 rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-30"
-              aria-label={`Remove feature ${i + 1}`}
+              aria-label={`Remove project ${i + 1}`}
             >
               Remove
             </button>
           </li>
         ))}
+      </ol>
+      <button
+        type="button"
+        onClick={() => commit([...rows, { name: "" }])}
+        className="text-sm font-medium text-accent transition hover:underline"
+      >
+        + Add project
+      </button>
+    </div>
+  );
+}
+
+type FeatureRow = {
+  name: string;
+  project?: string;
+  service?: string;
+  owner?: string;
+  dependsOn?: string[];
+};
+
+/** Feature capture — name + project + service + owner + feature dependencies. */
+function FeatureList({
+  features,
+  projects,
+  services,
+  people,
+  onChange,
+}: {
+  features: FeatureRow[];
+  projects: string[];
+  services: string[];
+  people: string[];
+  onChange: (features: FeatureRow[]) => void;
+}) {
+  const [rows, setRows] = useState<FeatureRow[]>(() =>
+    features.length > 0 ? [...features] : [{ name: "" }],
+  );
+
+  function commit(next: FeatureRow[]) {
+    setRows(next.length > 0 ? next : [{ name: "" }]);
+    onChange(
+      next
+        .filter((f) => f.name.trim())
+        .map((f) => ({
+          name: f.name.trim(),
+          ...(f.project ? { project: f.project } : {}),
+          ...(f.service ? { service: f.service } : {}),
+          ...(f.owner ? { owner: f.owner } : {}),
+          ...(f.dependsOn && f.dependsOn.length ? { dependsOn: f.dependsOn } : {}),
+        })),
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <ol className="space-y-3">
+        {rows.map((row, i) => {
+          // Other features (by name) available as dependencies for this row.
+          const otherNames = rows
+            .map((r) => r.name.trim())
+            .filter((n, j) => n && j !== i);
+          const deps = row.dependsOn ?? [];
+          return (
+            <li key={i} className="space-y-2 rounded-md border border-border/70 p-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  className="min-w-[8rem] flex-1"
+                  value={row.name}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i]!, name: e.target.value };
+                    commit(next);
+                  }}
+                  placeholder="Feature name"
+                  aria-label={`Feature ${i + 1} name`}
+                />
+                {projects.length > 0 ? (
+                  <select
+                    className="h-10 w-32 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                    value={row.project ?? ""}
+                    onChange={(e) => {
+                      const next = [...rows];
+                      next[i] = { ...next[i]!, project: e.target.value || undefined };
+                      commit(next);
+                    }}
+                    aria-label={`Feature ${i + 1} project`}
+                  >
+                    <option value="">Project…</option>
+                    {projects.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <select
+                  className="h-10 w-32 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                  value={row.service ?? ""}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i]!, service: e.target.value || undefined };
+                    commit(next);
+                  }}
+                  aria-label={`Feature ${i + 1} service`}
+                >
+                  <option value="">Runs in…</option>
+                  {services.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-10 w-32 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                  value={row.owner ?? ""}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i]!, owner: e.target.value || undefined };
+                    commit(next);
+                  }}
+                  aria-label={`Feature ${i + 1} owner`}
+                >
+                  <option value="">Owner…</option>
+                  {people.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => commit(rows.filter((_, j) => j !== i))}
+                  disabled={rows.length <= 1 && !row.name.trim()}
+                  className="shrink-0 rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-30"
+                  aria-label={`Remove feature ${i + 1}`}
+                >
+                  Remove
+                </button>
+              </div>
+              {otherNames.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5 pl-1">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                    depends on
+                  </span>
+                  {deps.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        const next = [...rows];
+                        next[i] = {
+                          ...next[i]!,
+                          dependsOn: deps.filter((x) => x !== d),
+                        };
+                        commit(next);
+                      }}
+                      className="inline-flex items-center gap-1 rounded border border-primary/40 bg-primary/5 px-1.5 py-0.5 text-xs text-foreground transition hover:border-primary"
+                    >
+                      {d}
+                      <span className="text-muted-foreground">✕</span>
+                    </button>
+                  ))}
+                  <select
+                    className="h-7 rounded-md border border-input bg-background px-1.5 text-xs"
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      const next = [...rows];
+                      next[i] = {
+                        ...next[i]!,
+                        dependsOn: [...deps, v].filter(
+                          (x, j, a) => a.indexOf(x) === j,
+                        ),
+                      };
+                      commit(next);
+                    }}
+                    aria-label={`Feature ${i + 1} dependencies`}
+                  >
+                    <option value="">+ add…</option>
+                    {otherNames
+                      .filter((n) => !deps.includes(n))
+                      .map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
       </ol>
       <button
         type="button"

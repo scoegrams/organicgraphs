@@ -71,10 +71,14 @@ export default async function WorkspacePage({
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div className="relative mt-1 h-12 w-12 shrink-0 border border-border p-2">
+          <Link
+            href={`/app/${orgId}/graph`}
+            aria-label="Open graph explorer"
+            className="group relative mt-1 h-12 w-12 shrink-0 border border-border p-2 transition hover:border-primary"
+          >
             <CornerTicks />
-            <NodeGraphGlyph className="text-primary" />
-          </div>
+            <NodeGraphGlyph className="text-primary transition group-hover:opacity-80" />
+          </Link>
           <div>
             <Link
               href="/app"
@@ -95,9 +99,15 @@ export default async function WorkspacePage({
           <Badge variant="success">Workspace generated</Badge>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {isSoftware ? <DemoDataButton orgId={orgId} /> : null}
+            <Link
+              href={`/app/${orgId}/graph`}
+              className={cn(buttonVariants({ size: "sm" }))}
+            >
+              Explore graph
+            </Link>
             <a
               href={`/app/${orgId}/export/brain`}
-              className={cn(buttonVariants({ size: "sm" }))}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
             >
               Download AI brain
             </a>
@@ -113,6 +123,44 @@ export default async function WorkspacePage({
 
       <DimensionRule />
 
+      {recordCount > 0 ? (
+        <Link
+          href={`/app/${orgId}/graph`}
+          className="group relative flex items-center gap-5 border border-primary/50 bg-card px-5 py-5 transition hover:border-primary hover:bg-primary/[0.03]"
+        >
+          <CornerTicks />
+          <div className="relative h-14 w-14 shrink-0 text-primary">
+            <NodeGraphGlyph />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-semibold tracking-tight text-foreground">
+              Explore your graph
+            </p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {recordCount} records · {relationshipCount} connections — pan,
+              zoom, and click any node to walk the company.
+            </p>
+          </div>
+          <span
+            className={cn(
+              buttonVariants({ size: "sm" }),
+              "shrink-0 group-hover:bg-primary/90",
+            )}
+          >
+            Open explorer →
+          </span>
+        </Link>
+      ) : (
+        <Card className="border-dashed">
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            No records yet.{" "}
+            {isSoftware
+              ? "Your graph is normally populated automatically from your wizard answers (people, apps, hosts, features). To explore with a fully-worked fictional company instead, click “Load sample company” above."
+              : "Record entry is the next milestone."}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat n={recordCount} label="Records" highlight />
         <Stat n={relationshipCount} label="Relationships" highlight />
@@ -123,17 +171,6 @@ export default async function WorkspacePage({
         <Stat n={dashboards.length} label="Dashboards" />
         <Stat n={healthChecks.length} label="Health checks" />
       </div>
-
-      {recordCount === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No records yet.{" "}
-            {isSoftware
-              ? "Your graph is normally populated automatically from your wizard answers (people, apps, hosts, features). To explore with a fully-worked fictional company instead, click “Load sample company” above."
-              : "Record entry is the next milestone."}
-          </CardContent>
-        </Card>
-      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

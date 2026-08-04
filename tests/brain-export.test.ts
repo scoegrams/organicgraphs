@@ -27,9 +27,9 @@ function input(): BrainExportInput {
       { id: "f1", recordTypeKey: "feature", displayName: "Checkout", slug: "checkout", status: "Planned", values: { status: "Planned" }, archived: false },
     ],
     relationships: [
-      { relationshipTypeKey: "service_hosted_on_vendor", sourceId: "s1", targetId: "v1", forwardLabel: "is hosted on" },
-      { relationshipTypeKey: "person_owns_feature", sourceId: "p1", targetId: "f1", forwardLabel: "owns" },
-      { relationshipTypeKey: "feature_in_service", sourceId: "f1", targetId: "s1", forwardLabel: "runs in" },
+      { relationshipTypeKey: "service_hosted_on_vendor", sourceId: "s1", targetId: "v1", forwardLabel: "is hosted on", reverseLabel: "hosts" },
+      { relationshipTypeKey: "person_owns_feature", sourceId: "p1", targetId: "f1", forwardLabel: "owns", reverseLabel: "is owned by" },
+      { relationshipTypeKey: "feature_in_service", sourceId: "f1", targetId: "s1", forwardLabel: "runs in", reverseLabel: "contains" },
     ],
     exportedAt: new Date("2026-01-01T00:00:00Z"),
   };

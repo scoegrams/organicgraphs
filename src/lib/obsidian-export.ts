@@ -72,6 +72,7 @@ export interface ExportRelationship {
   sourceId: string;
   targetId: string;
   forwardLabel: string;
+  reverseLabel: string;
 }
 
 export interface ObsidianExportInput {
@@ -146,11 +147,7 @@ function frontmatter(fields: Record<string, unknown>): string {
 }
 
 function typeFolder(rt: ExportRecordType): string {
-  return `types/${safeFilename(rt.name, rt.key)}`;
-}
-
-function typeNoteName(rt: ExportRecordType): string {
-  return `_Type — ${safeFilename(rt.name, rt.key)}`;
+  return safeFilename(rt.name, rt.key);
 }
 
 function recordNoteName(r: ExportRecord): string {
@@ -186,39 +183,32 @@ export function buildObsidianVaultFiles(
   const typeByKey = new Map(input.recordTypes.map((rt) => [rt.key, rt]));
   const recordById = new Map(input.records.map((r) => [r.id, r]));
 
-  files.set(
-    "README.md",
-    [
-      `# ${input.organization.name}`,
-      "",
-      "Obsidian vault exported from OrgGraph for testing and portable review.",
-      "",
-      "## How to open",
-      "",
-      "1. Unzip this archive.",
-      "2. In Obsidian: **Open folder as vault** → select the unzipped folder.",
-      "3. Start from [[Home]] or browse `types/`.",
-      "",
-      "## What's included",
-      "",
-      `- Organization: ${input.organization.name}`,
-      `- Schema version: ${input.schemaVersion}`,
-      `- Industry pack: ${input.organization.industryPackKey ?? "none"}`,
-      `- Record types: ${input.recordTypes.length}`,
-      `- Relationship types: ${input.relationshipTypes.length}`,
-      `- Records: ${input.records.length}`,
-      `- Relationships: ${input.relationships.length}`,
-      `- Exported at: ${exportedAt}`,
-      "",
-      "Stable OrgGraph IDs live in YAML frontmatter (`id`, `type`).",
-      "Wiki links use display names so the graph is readable in Obsidian.",
-      "",
-    ].join("\n"),
-  );
+  // Group records by type for the home view.
+  const recordsByType = new Map<string, ExportRecord[]>();
+  for (const r of input.records) {
+    const arr = recordsByType.get(r.recordTypeKey) ?? [];
+    arr.push(r);
+    recordsByType.set(r.recordTypeKey, arr);
+  }
 
-  const typeLinks = input.recordTypes.map(
-    (rt) => `- ${wiki(typeNoteName(rt))} (${rt.key})`,
-  );
+  // ── Home.md — data-first company snapshot ──────────────────────────────────
+  const typeBlocks: string[] = [];
+  for (const rt of input.recordTypes) {
+    const recs = recordsByType.get(rt.key) ?? [];
+    if (recs.length === 0) continue;
+    typeBlocks.push(`### ${rt.name}`);
+    typeBlocks.push("");
+    for (const r of recs) {
+      // Show one key outgoing relationship inline for context.
+      const out = input.relationships.filter((rel) => rel.sourceId === r.id);
+      const snippet =
+        out.length > 0
+          ? ` — ${out[0]!.forwardLabel} ${wiki(recordNoteName(recordById.get(out[0]!.targetId)!))}`
+          : "";
+      typeBlocks.push(`- ${wiki(recordNoteName(r))}${snippet}`);
+    }
+    typeBlocks.push("");
+  }
 
   files.set(
     "Home.md",
@@ -227,118 +217,74 @@ export function buildObsidianVaultFiles(
         id: input.organization.id,
         type: "organization",
         slug: input.organization.slug,
-        schema_version: input.schemaVersion,
-        industry_pack: input.organization.industryPackKey,
         exported_at: exportedAt,
       }),
       "",
       `# ${input.organization.name}`,
       "",
-      input.organization.description?.trim() ||
-        "_No organization description._",
+      input.organization.description?.trim() || "",
       "",
-      "## Record types",
+      `> ${input.records.length} records · ${input.relationships.length} connections · exported ${exportedAt.slice(0, 10)}`,
       "",
-      ...(typeLinks.length ? typeLinks : ["_None._"]),
+      "## Knowledge graph",
       "",
-      "## Schema index",
+      ...typeBlocks,
+      ...(typeBlocks.length === 0 ? ["_No records yet._", ""] : []),
+      "---",
       "",
-      `- ${wiki("Schema — Record types")}`,
-      `- ${wiki("Schema — Relationship types")}`,
-      `- ${wiki("Schema — Workflows")}`,
-      `- ${wiki("Schema — Dashboards")}`,
-      `- ${wiki("Schema — Health checks")}`,
-      `- ${wiki("Schema — Permission groups")}`,
+      `See [[_Schema]] for type definitions and relationship types.`,
       "",
-      `Records in this export: **${input.records.length}**`,
+    ]
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n"),
+  );
+
+  // ── README.md ───────────────────────────────────────────────────────────────
+  files.set(
+    "README.md",
+    [
+      `# ${input.organization.name} — Obsidian Vault`,
+      "",
+      "Exported from OrgGraph. Open this folder as a vault in Obsidian.",
+      "",
+      "1. Unzip this archive.",
+      "2. In Obsidian: **Open folder as vault** → select the unzipped folder.",
+      "3. Start from [[Home]].",
+      "",
+      `Records: ${input.records.length} · Relationships: ${input.relationships.length} · Exported: ${exportedAt.slice(0, 10)}`,
       "",
     ].join("\n"),
   );
 
-  // Per-type definition notes + folder placeholders
-  for (const rt of input.recordTypes) {
-    const folder = typeFolder(rt);
-    const related = input.relationshipTypes.filter(
-      (rel) =>
-        rel.sourceTypeKey === rt.key || rel.targetTypeKey === rt.key,
-    );
-    const fieldLines = rt.fields.map((f) => {
-      const req = f.required ? " (required)" : "";
-      const opts = f.options?.length ? ` — ${f.options.join(", ")}` : "";
-      return `- **${f.name}** (\`${f.key}\`): ${f.type}${req}${opts}`;
-    });
-    const relLines = related.map((rel) => {
-      const source = typeByKey.get(rel.sourceTypeKey);
-      const target = typeByKey.get(rel.targetTypeKey);
-      const sourceName = source ? typeNoteName(source) : rel.sourceTypeKey;
-      const targetName = target ? typeNoteName(target) : rel.targetTypeKey;
-      return `- ${wiki(sourceName)} *${rel.forwardLabel}* ${wiki(targetName)} (\`${rel.key}\`, ${rel.cardinality})`;
-    });
-
-    files.set(
-      `${folder}/${typeNoteName(rt)}.md`,
-      [
-        frontmatter({
-          id: `type_${rt.key}`,
-          type: "record_type",
-          key: rt.key,
-          sensitivity: rt.sensitivity,
-        }),
-        "",
-        `# ${rt.name}`,
-        "",
-        rt.description?.trim() || "_No description._",
-        "",
-        "## Fields",
-        "",
-        ...(fieldLines.length ? fieldLines : ["_No fields._"]),
-        "",
-        "## Relationships",
-        "",
-        ...(relLines.length ? relLines : ["_No relationship types._"]),
-        "",
-        "## Records",
-        "",
-        ...input.records
-          .filter((r) => r.recordTypeKey === rt.key)
-          .map((r) => `- ${wiki(recordNoteName(r))}`),
-        ...(input.records.some((r) => r.recordTypeKey === rt.key)
-          ? []
-          : ["_No records yet — schema-only export._"]),
-        "",
-      ].join("\n"),
-    );
-  }
-
-  // Record notes
+  // ── Per-record notes organized by type ────────────────────────────────────
   for (const r of input.records) {
     const rt = typeByKey.get(r.recordTypeKey);
     if (!rt) continue;
-    const folder = typeFolder(rt);
+    const folder = safeFilename(rt.name, rt.key);
     const outgoing = input.relationships.filter((rel) => rel.sourceId === r.id);
     const incoming = input.relationships.filter((rel) => rel.targetId === r.id);
 
-    const valueLines = Object.entries(r.values).map(([k, v]) => {
+    const valueLines: string[] = [];
+    for (const [k, v] of Object.entries(r.values)) {
+      if (v === null || v === undefined || v === "") continue;
       const field = rt.fields.find((f) => f.key === k);
       const label = field?.name ?? k;
-      return `- **${label}**: ${formatValue(v)}`;
-    });
+      valueLines.push(`- **${label}**: ${formatValue(v)}`);
+    }
 
-    const relLines = [
-      ...outgoing.map((rel) => {
-        const target = recordById.get(rel.targetId);
-        const label = rel.forwardLabel || rel.relationshipTypeKey;
-        return target
-          ? `- ${label} ${wiki(recordNoteName(target))}`
-          : `- ${label} _(missing target)_`;
-      }),
-      ...incoming.map((rel) => {
-        const source = recordById.get(rel.sourceId);
-        return source
-          ? `- linked from ${wiki(recordNoteName(source))} (\`${rel.relationshipTypeKey}\`)`
-          : `- linked from _(missing source)_`;
-      }),
-    ];
+    const outLines = outgoing.map((rel) => {
+      const target = recordById.get(rel.targetId);
+      if (!target) return null;
+      return `- ${rel.forwardLabel} → ${wiki(recordNoteName(target))}`;
+    }).filter(Boolean) as string[];
+
+    const inLines = incoming.map((rel) => {
+      const source = recordById.get(rel.sourceId);
+      if (!source) return null;
+      return `- ${wiki(recordNoteName(source))} → ${rel.reverseLabel}`;
+    }).filter(Boolean) as string[];
+
+    const relLines = [...outLines, ...inLines];
 
     files.set(
       `${folder}/${recordNoteName(r)}.md`,
@@ -346,136 +292,71 @@ export function buildObsidianVaultFiles(
         frontmatter({
           id: r.id,
           type: r.recordTypeKey,
-          status: r.status,
-          archived: r.archived,
+          ...(r.status ? { status: r.status } : {}),
           slug: r.slug,
         }),
         "",
         `# ${r.displayName}`,
         "",
-        `Type: ${wiki(typeNoteName(rt))}`,
+        `> ${rt.name}`,
         "",
-        "## Fields",
-        "",
-        ...(valueLines.length ? valueLines : ["_No field values._"]),
-        "",
-        "## Relationships",
-        "",
-        ...(relLines.length ? relLines : ["_No relationships._"]),
-        "",
+        ...(valueLines.length ? ["## Details", "", ...valueLines, ""] : []),
+        ...(relLines.length ? ["## Connections", "", ...relLines, ""] : ["_No connections._", ""]),
       ].join("\n"),
     );
   }
 
-  files.set(
-    "Schema — Record types.md",
-    [
-      frontmatter({ type: "schema_index", kind: "record_types" }),
-      "",
-      "# Record types",
-      "",
-      ...input.recordTypes.map(
-        (rt) =>
-          `- ${wiki(typeNoteName(rt))} — \`${rt.key}\`${rt.description ? `: ${rt.description}` : ""}`,
-      ),
-      "",
-    ].join("\n"),
-  );
+  // ── _Schema.md — schema index (one file, not six) ──────────────────────────
+  const relTypeLines = input.relationshipTypes.map((rel) => {
+    const src = typeByKey.get(rel.sourceTypeKey);
+    const tgt = typeByKey.get(rel.targetTypeKey);
+    const srcName = src?.name ?? rel.sourceTypeKey;
+    const tgtName = tgt?.name ?? rel.targetTypeKey;
+    return `| \`${rel.key}\` | ${srcName} | ${rel.forwardLabel} | ${tgtName} | ${rel.cardinality} |`;
+  });
+
+  const typeDefLines = input.recordTypes.map((rt) => {
+    const count = (recordsByType.get(rt.key) ?? []).length;
+    return `| **${rt.name}** | \`${rt.key}\` | ${count} record${count !== 1 ? "s" : ""} |`;
+  });
 
   files.set(
-    "Schema — Relationship types.md",
+    "_Schema.md",
     [
-      frontmatter({ type: "schema_index", kind: "relationship_types" }),
+      frontmatter({ type: "schema_index" }),
       "",
-      "# Relationship types",
+      `# ${input.organization.name} — Schema`,
       "",
-      ...input.relationshipTypes.map((rel) => {
-        const source = typeByKey.get(rel.sourceTypeKey);
-        const target = typeByKey.get(rel.targetTypeKey);
-        return `- **${rel.forwardLabel}** (\`${rel.key}\`): ${source ? wiki(typeNoteName(source)) : rel.sourceTypeKey} → ${target ? wiki(typeNoteName(target)) : rel.targetTypeKey} (${rel.cardinality})`;
+      "## Record types",
+      "",
+      "| Name | Key | Records |",
+      "| --- | --- | --- |",
+      ...typeDefLines,
+      "",
+      "## Relationship types",
+      "",
+      "| Key | From | Label | To | Cardinality |",
+      "| --- | --- | --- | --- | --- |",
+      ...relTypeLines,
+      ...(relTypeLines.length ? [] : ["_None._"]),
+      "",
+      "## Workflows",
+      "",
+      ...input.workflows.flatMap((w) => {
+        const states = (w.states ?? []).map((s) => s.name).join(" → ");
+        return [`- **${w.name}** (\`${w.recordTypeKey}\`): ${states || "—"}`];
       }),
+      ...(input.workflows.length ? [] : ["_None._"]),
       "",
     ].join("\n"),
   );
 
+  // ── schema/manifest.json ────────────────────────────────────────────────────
   files.set(
-    "Schema — Workflows.md",
-    [
-      frontmatter({ type: "schema_index", kind: "workflows" }),
-      "",
-      "# Workflows",
-      "",
-      ...input.workflows.flatMap((w) => [
-        `## ${w.name}`,
-        "",
-        `Record type: \`${w.recordTypeKey}\``,
-        "",
-        (w.states ?? []).map((s) => s.name).join(" → ") || "_No states._",
-        "",
-      ]),
-      ...(input.workflows.length ? [] : ["_None._", ""]),
-    ].join("\n"),
-  );
-
-  files.set(
-    "Schema — Dashboards.md",
-    [
-      frontmatter({ type: "schema_index", kind: "dashboards" }),
-      "",
-      "# Dashboards",
-      "",
-      ...input.dashboards.flatMap((d) => [
-        `## ${d.name}`,
-        "",
-        ...(d.widgets.length
-          ? d.widgets.map(
-              (w) =>
-                `- ${w.title ?? w.label ?? w.kind ?? "widget"}`,
-            )
-          : ["_No widgets._"]),
-        "",
-      ]),
-      ...(input.dashboards.length ? [] : ["_None._", ""]),
-    ].join("\n"),
-  );
-
-  files.set(
-    "Schema — Health checks.md",
-    [
-      frontmatter({ type: "schema_index", kind: "health_checks" }),
-      "",
-      "# Health checks",
-      "",
-      ...input.healthChecks.map(
-        (h) =>
-          `- **${h.name}** (${h.severity})${h.explanation ? `: ${h.explanation}` : ""}`,
-      ),
-      ...(input.healthChecks.length ? [] : ["_None._"]),
-      "",
-    ].join("\n"),
-  );
-
-  files.set(
-    "Schema — Permission groups.md",
-    [
-      frontmatter({ type: "schema_index", kind: "permission_groups" }),
-      "",
-      "# Permission groups",
-      "",
-      ...input.permissionGroups.map(
-        (g) =>
-          `- **${g.name}** (\`${g.key}\`)${g.description ? `: ${g.description}` : ""}`,
-      ),
-      ...(input.permissionGroups.length ? [] : ["_None._"]),
-      "",
-    ].join("\n"),
-  );
-
-  files.set(
-    "schema/manifest.json",
+    "_schema/manifest.json",
     JSON.stringify(
       {
-        format: "orggraph.obsidian-vault.v1",
+        format: "orggraph.obsidian-vault.v2",
         exportedAt,
         organization: {
           id: input.organization.id,
@@ -487,17 +368,9 @@ export function buildObsidianVaultFiles(
         counts: {
           recordTypes: input.recordTypes.length,
           relationshipTypes: input.relationshipTypes.length,
-          workflows: input.workflows.length,
-          dashboards: input.dashboards.length,
-          healthChecks: input.healthChecks.length,
-          permissionGroups: input.permissionGroups.length,
           records: input.records.length,
           relationships: input.relationships.length,
         },
-        recordTypes: input.recordTypes.map((rt) => ({
-          key: rt.key,
-          name: rt.name,
-        })),
       },
       null,
       2,

@@ -12,6 +12,7 @@ function ctx(overrides: Partial<WizardContext> = {}): WizardContext {
     hostingProviders: ["vercel", "railway"],
     teamTools: ["sentry", "github", "slack"],
     domainRegistrars: ["spaceship"],
+    projects: [],
     features: [{ name: "Checkout", service: "Web app", owner: "Alex" }],
     ...overrides,
   };
@@ -35,6 +36,43 @@ describe("buildRealDataset", () => {
     expect(d.records.filter((r) => r.recordTypeKey === "service")).toHaveLength(2);
     // 2 hosting + 3 tools + 1 domain
     expect(d.records.filter((r) => r.recordTypeKey === "vendor")).toHaveLength(6);
+    expect(d.records.filter((r) => r.recordTypeKey === "feature")).toHaveLength(1);
+  });
+
+  it("never duplicates a person — feature owner reuses / creates one canonical node", () => {
+    // "Vance" is a feature owner not in the people list, and appears with mixed
+    // casing across features. Only ONE Vance person should exist, owning both.
+    const d = buildRealDataset(
+      ctx({
+        people: [{ name: "Sam", role: "Founder" }],
+        features: [
+          { name: "Checkout", owner: "Vance" },
+          { name: "Billing", owner: "vance " },
+        ],
+      }),
+    );
+    const vances = d.records.filter(
+      (r) => r.recordTypeKey === "person" && /vance/i.test(r.displayName),
+    );
+    expect(vances).toHaveLength(1);
+    const owns = rels(d, "person_owns_feature");
+    expect(owns).toHaveLength(2);
+    expect(new Set(owns.map((r) => r.sourceLocalId)).size).toBe(1);
+  });
+
+  it("dedupes duplicate people, services, and features by normalized name", () => {
+    const d = buildRealDataset(
+      ctx({
+        people: [
+          { name: "Sam", role: "Founder" },
+          { name: "sam ", role: "CEO" },
+        ],
+        services: ["API", "api"],
+        features: [{ name: "Checkout" }, { name: "checkout " }],
+      }),
+    );
+    expect(d.records.filter((r) => r.recordTypeKey === "person")).toHaveLength(1);
+    expect(d.records.filter((r) => r.recordTypeKey === "service")).toHaveLength(1);
     expect(d.records.filter((r) => r.recordTypeKey === "feature")).toHaveLength(1);
   });
 
@@ -92,6 +130,44 @@ describe("buildRealDataset", () => {
     expect(d.requiredRelationshipTypeKeys).toEqual(
       expect.arrayContaining(["feature_in_service", "service_hosted_on_vendor"]),
     );
+  });
+
+  it("builds the Client → Project → Feature spine from projects", () => {
+    const d = buildRealDataset(
+      ctx({
+        projects: [
+          { name: "Car Nodes App", client: "Toyota" },
+          { name: "Internal Tool" },
+        ],
+        features: [
+          { name: "3D viewer", project: "Car Nodes App", dependsOn: ["VIN lookup"] },
+          { name: "VIN lookup", project: "Car Nodes App" },
+        ],
+      }),
+    );
+    // Two products, one customer (Toyota).
+    expect(d.records.filter((r) => r.recordTypeKey === "product")).toHaveLength(2);
+    const customers = d.records.filter((r) => r.recordTypeKey === "customer");
+    expect(customers).toHaveLength(1);
+    expect(customers[0]!.displayName).toBe("Toyota");
+    // Client → Project edge (Toyota → Car Nodes App = prod_0).
+    expect(rels(d, "customer_client_of_product")).toContainEqual({
+      relationshipTypeKey: "customer_client_of_product",
+      sourceLocalId: "cust_0",
+      targetLocalId: "prod_0",
+    });
+    // Feature belongs to its project's product.
+    expect(rels(d, "feature_belongs_to_product")).toContainEqual({
+      relationshipTypeKey: "feature_belongs_to_product",
+      sourceLocalId: "f_0",
+      targetLocalId: "prod_0",
+    });
+    // Feature → feature dependency (3D viewer depends on VIN lookup).
+    expect(rels(d, "feature_depends_on_feature")).toContainEqual({
+      relationshipTypeKey: "feature_depends_on_feature",
+      sourceLocalId: "f_0",
+      targetLocalId: "f_1",
+    });
   });
 
   it("produces a coherent graph even with only people entered", () => {
