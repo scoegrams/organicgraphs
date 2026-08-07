@@ -127,7 +127,7 @@ export function WizardClient({
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <p className="text-sm text-muted-foreground">Setup wizard · {orgName}</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">
           Tell us how your organization works
         </h1>
       </div>
@@ -162,7 +162,7 @@ export function WizardClient({
               </Field>
               <Field label="Approximate team size">
                 <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-base"
                   value={answers.organization.teamSize ?? ""}
                   onChange={(e) => patch("organization", { teamSize: e.target.value })}
                 >
@@ -329,7 +329,7 @@ export function WizardClient({
               </Field>
 
               <div className="border-t pt-4">
-                <p className="mb-3 text-sm font-medium">Where do you host or deploy?</p>
+                <p className="mb-3 text-base font-semibold">Where do you host or deploy?</p>
                 <p className="mb-3 text-xs text-muted-foreground">
                   Each selection creates a Vendor node linked to your services.
                 </p>
@@ -350,7 +350,7 @@ export function WizardClient({
               </div>
 
               <div className="border-t pt-4">
-                <p className="mb-3 text-sm font-medium">Domain registrars & DNS</p>
+                <p className="mb-3 text-base font-semibold">Domain registrars &amp; DNS</p>
                 <p className="mb-3 text-xs text-muted-foreground">
                   Where did you buy or manage your domain? Creates a Vendor node linked to your product.
                 </p>
@@ -371,7 +371,7 @@ export function WizardClient({
               </div>
 
               <div className="border-t pt-4">
-                <p className="mb-3 text-sm font-medium">What SaaS tools does the team use?</p>
+                <p className="mb-3 text-base font-semibold">What SaaS tools does the team use?</p>
                 <p className="mb-3 text-xs text-muted-foreground">
                   Each selection creates a Vendor node your team can be linked to.
                 </p>
@@ -634,7 +634,7 @@ function PeopleList({
               aria-label={`Person ${i + 1} name`}
             />
             <select
-              className="h-10 w-40 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-12 w-44 shrink-0 rounded-md border border-input bg-background px-2 text-base"
               value={row.role ?? ""}
               onChange={(e) => {
                 const next = [...rows];
@@ -818,7 +818,7 @@ function FeatureList({
                 />
                 {projects.length > 0 ? (
                   <select
-                    className="h-10 w-32 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                    className="h-12 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-base"
                     value={row.project ?? ""}
                     onChange={(e) => {
                       const next = [...rows];
@@ -836,7 +836,7 @@ function FeatureList({
                   </select>
                 ) : null}
                 <select
-                  className="h-10 w-32 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                  className="h-12 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-base"
                   value={row.service ?? ""}
                   onChange={(e) => {
                     const next = [...rows];
@@ -853,7 +853,7 @@ function FeatureList({
                   ))}
                 </select>
                 <select
-                  className="h-10 w-32 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                  className="h-12 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-base"
                   value={row.owner ?? ""}
                   onChange={(e) => {
                     const next = [...rows];
@@ -903,7 +903,7 @@ function FeatureList({
                     </button>
                   ))}
                   <select
-                    className="h-7 rounded-md border border-input bg-background px-1.5 text-xs"
+                    className="h-9 rounded-md border border-input bg-background px-1.5 text-sm"
                     value=""
                     onChange={(e) => {
                       const v = e.target.value;

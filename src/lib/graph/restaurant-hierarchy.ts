@@ -41,7 +41,9 @@ export const RESTAURANT_CANONICAL_RELS: ReadonlyArray<{
   { key: "staff_works_at", sourceTypeKey: "staff", targetTypeKey: "location", forwardLabel: "works at", reverseLabel: "employs" },
   { key: "event_at_location", sourceTypeKey: "event", targetTypeKey: "location", forwardLabel: "held at", reverseLabel: "hosts" },
   { key: "location_uses_vendor", sourceTypeKey: "location", targetTypeKey: "vendor", forwardLabel: "uses", reverseLabel: "is used by" },
+  { key: "vendor_integrates_with", sourceTypeKey: "vendor", targetTypeKey: "vendor", forwardLabel: "integrates with", reverseLabel: "integrates with" },
   { key: "supplier_provides_dish", sourceTypeKey: "supplier", targetTypeKey: "dish", forwardLabel: "supplies", reverseLabel: "is supplied by" },
+  { key: "supplier_for_menu", sourceTypeKey: "supplier", targetTypeKey: "menu", forwardLabel: "supplies ingredients for", reverseLabel: "sourced from" },
   { key: "dish_paired_with", sourceTypeKey: "dish", targetTypeKey: "dish", forwardLabel: "is paired with", reverseLabel: "is paired with" },
 ];
 
@@ -85,77 +87,11 @@ export function dishesAtLocation(
 }
 
 /**
- * Derived supplier→dish edges. Only when a shared ingredient path exists:
- *   Supplier → Ingredient ← Dish
- * Deduplicated by (supplierId, dishId). Never invents suppliers.
+ * Supplier→dish and supplier→menu shortcuts used to be derived here. They are
+ * now declared as path rules in `graph/inference/rules.ts` and applied by the
+ * shared engine, which also retracts them when their ingredient path is gone.
  */
-export function deriveSupplierProvidesDish(edges: GraphEdge[]): GraphEdge[] {
-  // ingredientId → supplierIds
-  const suppliersByIngredient = new Map<string, Set<string>>();
-  // ingredientId → dishIds
-  const dishesByIngredient = new Map<string, Set<string>>();
 
-  for (const e of edges) {
-    if (e.relationshipTypeKey === "supplier_provides_ingredient") {
-      let set = suppliersByIngredient.get(e.targetId);
-      if (!set) {
-        set = new Set();
-        suppliersByIngredient.set(e.targetId, set);
-      }
-      set.add(e.sourceId);
-    }
-    if (e.relationshipTypeKey === "dish_uses_ingredient") {
-      let set = dishesByIngredient.get(e.targetId);
-      if (!set) {
-        set = new Set();
-        dishesByIngredient.set(e.targetId, set);
-      }
-      set.add(e.sourceId);
-    }
-  }
-
-  const seen = new Set<string>();
-  const out: GraphEdge[] = [];
-  for (const [ingredientId, suppliers] of suppliersByIngredient) {
-    const dishes = dishesByIngredient.get(ingredientId);
-    if (!dishes) continue;
-    for (const supplierId of suppliers) {
-      for (const dishId of dishes) {
-        const sig = `${supplierId}|${dishId}`;
-        if (seen.has(sig)) continue;
-        seen.add(sig);
-        out.push({
-          relationshipTypeKey: "supplier_provides_dish",
-          sourceId: supplierId,
-          targetId: dishId,
-        });
-      }
-    }
-  }
-  return out;
-}
-
-/**
- * After removing an authoritative edge, return which derived supplier→dish
- * edges are no longer supported by any remaining ingredient path.
- */
-export function unsupportedSupplierDishEdges(
-  remainingAuthoritative: GraphEdge[],
-  existingDerived: GraphEdge[],
-): GraphEdge[] {
-  const stillSupported = new Set(
-    deriveSupplierProvidesDish(remainingAuthoritative).map(
-      (e) => `${e.sourceId}|${e.targetId}`,
-    ),
-  );
-  return existingDerived.filter(
-    (e) =>
-      e.relationshipTypeKey === "supplier_provides_dish" &&
-      !stillSupported.has(`${e.sourceId}|${e.targetId}`),
-  );
-}
-
-/** Operational vendors must never be classified as food suppliers. */
 const OPERATIONAL_VENDOR_CATEGORIES = new Set([
   "pos",
   "reservations",
@@ -177,5 +113,8 @@ export function isOperationalVendorCategory(category: string | undefined): boole
 
 /** Self-edges are only allowed for explicitly self-referential types. */
 export function allowsSelfRelationship(relationshipTypeKey: string): boolean {
-  return relationshipTypeKey === "dish_paired_with";
+  return (
+    relationshipTypeKey === "dish_paired_with" ||
+    relationshipTypeKey === "vendor_integrates_with"
+  );
 }

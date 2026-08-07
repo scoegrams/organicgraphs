@@ -69,33 +69,27 @@ export default async function WorkspacePage({
 
   return (
     <div className="space-y-8">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
+      {/* ── Workspace header ────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-6">
+        <div>
           <Link
-            href={`/app/${orgId}/graph`}
-            aria-label="Open graph explorer"
-            className="group relative mt-1 h-12 w-12 shrink-0 border border-border p-2 transition hover:border-primary"
+            href="/app"
+            className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.1em] text-accent transition hover:opacity-70"
           >
-            <CornerTicks />
-            <NodeGraphGlyph className="text-primary transition group-hover:opacity-80" />
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M8 2L4 6l4 4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Organizations
           </Link>
-          <div>
-            <Link
-              href="/app"
-              className="text-sm text-muted-foreground transition hover:text-foreground"
-            >
-              ← Organizations
-            </Link>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-              {organization.name} workspace
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Schema v{schema.version} is live. This model now backs records,
-              relationships, dashboards, and health checks.
-            </p>
-          </div>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight">
+            {organization.name}
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Schema v{schema.version} · {recordCount} records · {relationshipCount} connections
+          </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
+
+        <div className="flex shrink-0 flex-col items-end gap-3 pt-1">
           <Badge variant="success">Workspace generated</Badge>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {isSoftware ? <DemoDataButton orgId={orgId} /> : null}
@@ -105,15 +99,29 @@ export default async function WorkspacePage({
             >
               Explore graph
             </Link>
+            <Link
+              href={`/app/${orgId}/design`}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+            >
+              ✦ Design &amp; preview
+            </Link>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              href={`/app/${orgId}/members`}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-xs text-muted-foreground")}
+            >
+              People
+            </Link>
             <a
               href={`/app/${orgId}/export/brain`}
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-xs text-muted-foreground")}
             >
               Download AI brain
             </a>
             <a
               href={`/app/${orgId}/export/obsidian`}
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-xs text-muted-foreground")}
             >
               Export to Obsidian
             </a>

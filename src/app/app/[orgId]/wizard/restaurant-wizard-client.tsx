@@ -111,7 +111,7 @@ export function RestaurantWizardClient({
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <p className="text-sm text-muted-foreground">Setup wizard · {orgName}</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">
           Tell us how your restaurant works
         </h1>
       </div>
@@ -151,7 +151,7 @@ export function RestaurantWizardClient({
               </Field>
               <Field label="Size">
                 <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-base"
                   value={answers.organization.teamSize ?? ""}
                   onChange={(e) => patch("organization", { teamSize: e.target.value })}
                 >
@@ -219,7 +219,7 @@ export function RestaurantWizardClient({
               </Field>
 
               <div className="border-t pt-4">
-                <p className="mb-1 text-sm font-medium">Operational software</p>
+                <p className="mb-1 text-base font-semibold">Operational software</p>
                 <p className="mb-3 text-xs text-muted-foreground">
                   POS, reservations, scheduling, delivery, payroll — everything that runs the restaurant.
                   Each becomes a Vendor node grouped under your location.
@@ -336,7 +336,7 @@ function StaffList({ staff, onChange }: { staff: PersonRow[]; onChange: (s: Pers
               aria-label={`Staff ${i + 1} name`}
             />
             <select
-              className="h-10 w-44 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-12 w-44 shrink-0 rounded-md border border-input bg-background px-2 text-base"
               value={row.role ?? ""}
               onChange={(e) => { const next = [...rows]; next[i] = { ...next[i]!, role: e.target.value || undefined }; commit(next); }}
               aria-label={`Staff ${i + 1} role`}
@@ -394,7 +394,7 @@ function MenuList({ menus, onChange }: { menus: MenuRow[]; onChange: (m: MenuRow
               aria-label={`Menu ${i + 1} name`}
             />
             <select
-              className="h-10 w-40 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-12 w-40 shrink-0 rounded-md border border-input bg-background px-2 text-base"
               value={row.client ?? ""}
               onChange={(e) => { const next = [...rows]; next[i] = { ...next[i]!, client: e.target.value || undefined }; commit(next); }}
               aria-label={`Menu ${i + 1} type`}
@@ -477,7 +477,7 @@ function DishList({
             />
             {/* Category stored in `service` field for reuse with existing schema */}
             <select
-              className="h-10 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-12 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-base"
               value={row.service ?? ""}
               onChange={(e) => { const next = [...rows]; next[i] = { ...next[i]!, service: e.target.value || undefined }; commit(next); }}
               aria-label={`Dish ${i + 1} category`}
@@ -487,7 +487,7 @@ function DishList({
             </select>
             {menus.length > 0 && (
               <select
-                className="h-10 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                className="h-12 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-base"
                 value={row.project ?? ""}
                 onChange={(e) => { const next = [...rows]; next[i] = { ...next[i]!, project: e.target.value || undefined }; commit(next); }}
                 aria-label={`Dish ${i + 1} menu`}
@@ -498,7 +498,7 @@ function DishList({
             )}
             {staff.length > 0 && (
               <select
-                className="h-10 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                className="h-12 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-base"
                 value={row.owner ?? ""}
                 onChange={(e) => { const next = [...rows]; next[i] = { ...next[i]!, owner: e.target.value || undefined }; commit(next); }}
                 aria-label={`Dish ${i + 1} chef`}
@@ -569,7 +569,7 @@ function SupplierList({
               aria-label={`Supplier ${i + 1} name`}
             />
             <select
-              className="h-10 w-40 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-12 w-40 shrink-0 rounded-md border border-input bg-background px-2 text-base"
               value={row.category ?? ""}
               onChange={(e) => { const next = [...rows]; next[i] = { ...next[i]!, category: e.target.value || undefined }; commit(next); }}
               aria-label={`Supplier ${i + 1} category`}
@@ -697,7 +697,7 @@ function OperationalVendorList({
                 aria-label={`Other vendor ${i + 1}`}
               />
               <select
-                className="h-10 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+                className="h-12 w-36 shrink-0 rounded-md border border-input bg-background px-2 text-base"
                 value={row.category ?? ""}
                 onChange={(e) => {
                   const next = [...rows];

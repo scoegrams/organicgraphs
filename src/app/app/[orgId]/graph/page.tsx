@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { requireOrgAccess } from "@/lib/tenant";
 import { prisma } from "@/lib/db";
 import { fieldsFromJson } from "@/lib/obsidian-export";
+import { ruleKeyFromAttribution } from "@/lib/graph/inference/apply";
+import { rationaleForRule } from "@/lib/graph/inference/rules";
 import { GraphExplorer, type GraphPayload } from "./graph-explorer";
 
 export default async function GraphPage({
@@ -90,34 +92,35 @@ export default async function GraphPage({
       .filter((rel) => recordIds.has(rel.sourceId) && recordIds.has(rel.targetId))
       .map((rel) => {
         const t = relTypeByKey.get(rel.relationshipTypeKey);
+        const ruleKey = ruleKeyFromAttribution(rel.sourceAttribution);
         return {
           id: rel.id,
           source: rel.sourceId,
           target: rel.targetId,
           forwardLabel: t?.forwardLabel ?? rel.relationshipTypeKey,
           reverseLabel: t?.reverseLabel ?? rel.relationshipTypeKey,
+          inferredReason: ruleKey ? rationaleForRule(ruleKey) : null,
         };
       }),
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Link
-            href={`/app/${orgId}/workspace`}
-            className="text-sm text-muted-foreground transition hover:text-foreground"
-          >
-            ← {organization.name} workspace
-          </Link>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-            Graph explorer
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Every record and connection in your organization, drawn live. Click a
-            node to inspect it and walk its relationships.
-          </p>
-        </div>
+    <div className="space-y-3">
+      <div className="flex items-center gap-4">
+        <Link
+          href={`/app/${orgId}/workspace`}
+          className="flex items-center gap-1.5 text-sm font-semibold text-accent transition hover:opacity-70"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {organization.name}
+        </Link>
+        <span className="text-muted-foreground/40 select-none">/</span>
+        <h1 className="text-base font-bold tracking-tight">Graph explorer</h1>
+        <p className="text-sm text-muted-foreground hidden sm:block">
+          Every record and connection, drawn live. Click a node to inspect.
+        </p>
       </div>
 
       <GraphExplorer data={payload} orgId={orgId} />

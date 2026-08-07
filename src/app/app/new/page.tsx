@@ -15,10 +15,10 @@ export default async function NewOrganizationPage() {
         >
           ← Back to organizations
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+        <h1 className="mt-2 text-3xl font-bold tracking-tight">
           Create an organization
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-2 text-sm text-muted-foreground">
           This becomes an isolated workspace. Next you&apos;ll choose an industry
           pack and complete a short setup interview.
         </p>

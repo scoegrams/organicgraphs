@@ -92,19 +92,26 @@ describe("buildRealDataset", () => {
     });
   });
 
-  it("connects every service to each monitoring tool", () => {
-    // sentry is the only Monitoring tool here -> 2 services x 1 monitor = 2
-    expect(rels(buildRealDataset(ctx()), "service_monitored_by_vendor")).toHaveLength(2);
+  // The seeder states only what the wizard actually told us. Guessing who uses
+  // which tool is what turned early graphs into a hairball, so those edges are
+  // left to the inference engine, which can also retract them later.
+  it("does not guess that every service is monitored by every monitoring tool", () => {
+    expect(rels(buildRealDataset(ctx()), "service_monitored_by_vendor")).toHaveLength(0);
   });
 
-  it("links the product to every vendor", () => {
-    expect(rels(buildRealDataset(ctx()), "product_uses_vendor")).toHaveLength(6);
+  it("does not guess that every person uses every team tool", () => {
+    expect(rels(buildRealDataset(ctx()), "person_uses_vendor")).toHaveLength(0);
   });
 
-  it("links each person to dev/comms/design tools only", () => {
-    // github (Dev tools) + slack (Comms) => 2 personal tools x 2 people = 4
-    // sentry (Monitoring) is excluded.
-    expect(rels(buildRealDataset(ctx()), "person_uses_vendor")).toHaveLength(4);
+  it("links only infrastructure vendors to the product anchor", () => {
+    // Hosting (vercel, railway) and the domain registrar are facts about the
+    // product. Sentry, GitHub, and Slack are not.
+    const used = rels(buildRealDataset(ctx()), "product_uses_vendor");
+    expect(used.map((r) => r.targetLocalId).sort()).toEqual([
+      "v_domain_spaceship",
+      "v_host_railway",
+      "v_host_vercel",
+    ]);
   });
 
   it("wires feature ownership, service, and product", () => {

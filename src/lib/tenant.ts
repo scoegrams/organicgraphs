@@ -53,8 +53,8 @@ export async function requireOrgAccess(
     include: { organization: true },
   });
   if (!membership) {
-    // Do not reveal whether the org exists — treat as not found for this user.
-    throw new AccessError("You do not have access to this organization.", 404);
+    // Stale bookmark / wrong account — send them home instead of a 500.
+    redirect("/app");
   }
   return {
     user,

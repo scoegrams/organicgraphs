@@ -17,7 +17,8 @@ import {
   type DuplicatePair,
   type FuzzyHit,
 } from "@/lib/graph/fuzzy";
-import { brainFanOut } from "@/lib/graph/brain-link";
+import { reconcileInference, ruleKeyFromAttribution } from "@/lib/graph/inference/apply";
+import { getPack } from "@/lib/packs";
 import { softwarePack } from "@/lib/packs/software";
 
 export interface NewRecordConnection {
@@ -77,6 +78,12 @@ export async function createRecord(
     where: { organizationId_key: { organizationId: orgId, key: input.recordTypeKey } },
   });
   if (!rtDef) return { error: "Unknown record type." };
+
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { industryPackKey: true },
+  });
+  const packKey = org?.industryPackKey ?? null;
 
   // Explicit pick from autocomplete, else fuzzy reuse ("Vance" ≈ "vance ").
   let reusedHit: FuzzyHit | null = null;
@@ -169,7 +176,10 @@ export async function createRecord(
           select: { id: true },
         });
         if (!relDef) {
-          const packRel = softwarePack.relationshipTypes.find(
+          // Fall back to the org's own pack so restaurant (and future pack)
+          // relationship types bootstrap the same way software ones always did.
+          const pack = packKey ? getPack(packKey) : undefined;
+          const packRel = (pack ?? softwarePack).relationshipTypes.find(
             (r) => r.key === relationshipTypeKey,
           );
           if (!packRel) return;
@@ -230,110 +240,9 @@ export async function createRecord(
         );
       }
 
-      // Brain fan-out: e.g. Vendor→Product also links people on that product.
-      for (const c of input.connections) {
-        if (!c.otherId || !c.relationshipTypeKey) continue;
-        const other = await tx.record.findFirst({
-          where: { id: c.otherId, organizationId: orgId },
-          select: { id: true, recordTypeKey: true },
-        });
-        if (!other) continue;
-
-        let peopleOnProduct: string[] = [];
-        let productsOfPerson: string[] = [];
-        let vendorsOfProduct: string[] = [];
-        let productsOfVendor: string[] = [];
-
-        if (other.recordTypeKey === "product") {
-          const inv = await tx.relationship.findMany({
-            where: {
-              organizationId: orgId,
-              relationshipTypeKey: "investor_backs_product",
-              targetId: other.id,
-            },
-            select: { sourceId: true },
-          });
-          const featureLinks = await tx.relationship.findMany({
-            where: {
-              organizationId: orgId,
-              relationshipTypeKey: "feature_belongs_to_product",
-              targetId: other.id,
-            },
-            select: { sourceId: true },
-          });
-          const featureIds = featureLinks.map((r) => r.sourceId);
-          const owners =
-            featureIds.length === 0
-              ? []
-              : await tx.relationship.findMany({
-                  where: {
-                    organizationId: orgId,
-                    relationshipTypeKey: "person_owns_feature",
-                    targetId: { in: featureIds },
-                  },
-                  select: { sourceId: true },
-                });
-          peopleOnProduct = [
-            ...new Set([
-              ...inv.map((r) => r.sourceId),
-              ...owners.map((r) => r.sourceId),
-            ]),
-          ];
-          const vendorLinks = await tx.relationship.findMany({
-            where: {
-              organizationId: orgId,
-              relationshipTypeKey: "product_uses_vendor",
-              sourceId: other.id,
-            },
-            select: { targetId: true },
-          });
-          vendorsOfProduct = vendorLinks.map((r) => r.targetId);
-        }
-        if (other.recordTypeKey === "person") {
-          const backed = await tx.relationship.findMany({
-            where: {
-              organizationId: orgId,
-              relationshipTypeKey: "investor_backs_product",
-              sourceId: other.id,
-            },
-            select: { targetId: true },
-          });
-          productsOfPerson = backed.map((r) => r.targetId);
-        }
-        if (other.recordTypeKey === "vendor") {
-          const productLinks = await tx.relationship.findMany({
-            where: {
-              organizationId: orgId,
-              relationshipTypeKey: "product_uses_vendor",
-              targetId: other.id,
-            },
-            select: { sourceId: true },
-          });
-          productsOfVendor = productLinks.map((r) => r.sourceId);
-        }
-
-        const extras = brainFanOut({
-          newRecordTypeKey: input.recordTypeKey,
-          primary: {
-            relationshipTypeKey: c.relationshipTypeKey,
-            direction: c.direction,
-            otherId: other.id,
-            otherTypeKey: other.recordTypeKey,
-          },
-          peopleOnProduct,
-          productsOfPerson,
-          vendorsOfProduct,
-          productsOfVendor,
-        });
-        for (const e of extras) {
-          await writeEdge(
-            e.relationshipTypeKey,
-            e.direction,
-            e.otherId,
-            "brain",
-          );
-        }
-      }
+      // Every edge the pack's rules now justify, minus any whose supporting
+      // path this write invalidated.
+      await reconcileInference(tx, orgId, { packKey, userId: user.id });
 
       return recordId;
     });
@@ -613,7 +522,18 @@ export async function applyProposals(
         edges++;
       }
 
-      return { created, reused, edges };
+      // AI-accepted edges are facts like any other, so let the rules draw
+      // whatever follows from them.
+      const org = await tx.organization.findUnique({
+        where: { id: orgId },
+        select: { industryPackKey: true },
+      });
+      const inference = await reconcileInference(tx, orgId, {
+        packKey: org?.industryPackKey ?? null,
+        userId: user.id,
+      });
+
+      return { created, reused, edges: edges + inference.created };
     });
 
     await recordAudit({
@@ -690,9 +610,31 @@ export async function deleteRelationship(
     return { error: "You do not have permission to remove connections." };
   }
   try {
+    const edge = await prisma.relationship.findFirst({
+      where: { id: edgeId, organizationId: orgId },
+      select: { relationshipTypeKey: true, sourceAttribution: true },
+    });
+
     await prisma.relationship.deleteMany({
       where: { id: edgeId, organizationId: orgId },
     });
+
+    // Unlinking a stated fact can strand the conclusions drawn from it, so
+    // rerun inference. Unlinking an inferred edge is a rejection of that
+    // conclusion — recreating it immediately would fight the user.
+    if (edge && !ruleKeyFromAttribution(edge.sourceAttribution)) {
+      const org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { industryPackKey: true },
+      });
+      await prisma.$transaction((tx) =>
+        reconcileInference(tx, orgId, {
+          packKey: org?.industryPackKey ?? null,
+          userId: user.id,
+        }),
+      );
+    }
+
     await recordAudit({
       organizationId: orgId,
       actorUserId: user.id,

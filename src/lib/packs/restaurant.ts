@@ -208,8 +208,12 @@ export const restaurantPack: IndustryPackDef = {
     // Derived supply-chain shortcut (must be supported by ingredient path)
     rel("supplier_provides_dish",    "supplier",   "dish",       "supplies",      "is supplied by",     "many_to_many"),
 
+    // High-level: supplier covers a whole menu (e.g. Sysco → Dinner menu)
+    rel("supplier_for_menu",         "supplier",   "menu",       "supplies ingredients for", "sourced from", "many_to_many"),
+
     // Operations
     rel("location_uses_vendor",      "location",   "vendor",     "uses",          "is used by",         "many_to_many"),
+    rel("vendor_integrates_with",    "vendor",     "vendor",     "integrates with", "integrates with",  "many_to_many"),
     rel("event_at_location",         "event",      "location",   "held at",       "hosts",              "many_to_one"),
 
     // Lateral / pairing (must not affect hierarchy)

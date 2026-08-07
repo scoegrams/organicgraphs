@@ -2,6 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // Traced dependency bundle, so the runtime image ships without node_modules.
+  output: "standalone",
   eslint: {
     // Lint is run explicitly via `npm run lint`; don't fail production builds on it.
     ignoreDuringBuilds: true,

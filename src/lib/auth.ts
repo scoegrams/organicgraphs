@@ -5,13 +5,15 @@ import { prisma } from "@/lib/db";
 import type { User } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
-// Dev authentication.
+// Session cookies.
 //
-// This is a self-contained, HMAC-signed session cookie so the app runs with no
-// external auth service. It is intentionally isolated behind a small surface
-// (`getCurrentUser`, `createDevSession`, `signOut`) so it can be swapped for
-// Auth.js or Clerk without touching call sites: replace the body of these
-// functions with the provider's session lookup and sign-in/out.
+// Self-contained HMAC-signed cookie, so the app needs no external auth service.
+// Credentials are checked in `accounts.ts`; this module only issues and reads
+// the session. The surface (`getCurrentUser`, `createSession`, `signOut`) is
+// small enough to swap for Auth.js or Clerk without touching call sites.
+//
+// The payload is signed but not encrypted, so it must never carry anything
+// beyond the identifiers below.
 // ---------------------------------------------------------------------------
 
 const COOKIE_NAME = "orggraph_session";
@@ -82,17 +84,8 @@ export async function getCurrentUser(): Promise<User | null> {
   return user ?? null;
 }
 
-/** Dev sign-in: find-or-create a user by email and set the session cookie. */
-export async function createDevSession(
-  email: string,
-  name?: string,
-): Promise<User> {
-  const normalized = email.trim().toLowerCase();
-  const user = await prisma.user.upsert({
-    where: { email: normalized },
-    update: name ? { name } : {},
-    create: { email: normalized, name: name ?? normalized.split("@")[0] },
-  });
+/** Issues a session cookie for an already-authenticated user. */
+export async function createSession(user: User): Promise<void> {
   const token = sign({ userId: user.id, email: user.email, iat: Date.now() });
   const jar = await cookies();
   jar.set(COOKIE_NAME, token, {
@@ -102,7 +95,6 @@ export async function createDevSession(
     path: "/",
     maxAge: MAX_AGE_SECONDS,
   });
-  return user;
 }
 
 export async function signOut(): Promise<void> {

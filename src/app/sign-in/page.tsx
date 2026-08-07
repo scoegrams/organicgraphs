@@ -5,9 +5,14 @@ import { brand } from "@/lib/brand";
 import { PandaMark } from "@/components/panda-mark";
 import { SignInForm } from "./sign-in-form";
 
-export default async function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string; mode?: string }>;
+}) {
   const user = await getCurrentUser();
   if (user) redirect("/app");
+  const { next, mode } = await searchParams;
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
@@ -32,15 +37,16 @@ export default async function SignInPage() {
       </Link>
       <PandaMark size={160} className="mt-8" />
       <h1 className="mt-6 text-3xl font-semibold tracking-tight">
-        Developer sign-in
+        Sign in to {brand.name}
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Enter any email to create or resume a development account. This seam is
-        swappable for Auth.js or Clerk in production — no code changes at call
-        sites.
+        Sign in to build and explore your organization&rsquo;s knowledge graph.
       </p>
       <div className="mt-8">
-        <SignInForm />
+        <SignInForm
+          next={next}
+          startOn={mode === "signup" ? "signup" : "signin"}
+        />
       </div>
     </main>
   );

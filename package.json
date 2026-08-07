@@ -14,15 +14,14 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts",
+    "prisma:deploy": "prisma migrate deploy",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+  "engines": {
+    "node": ">=20 <25"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",

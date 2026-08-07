@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 function Submit() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending} className="w-full" size="lg">
       {pending ? "Creating…" : "Create & choose industry"}
     </Button>
   );

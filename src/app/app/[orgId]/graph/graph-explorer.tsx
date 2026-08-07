@@ -50,6 +50,8 @@ export interface GraphPayload {
     target: string;
     forwardLabel: string;
     reverseLabel: string;
+    /** Set when the rule engine concluded this link rather than a person stating it. */
+    inferredReason?: string | null;
   }[];
 }
 
@@ -553,6 +555,7 @@ export function GraphExplorer({
   );
 
   const [spineMode, setSpineMode] = useState(false);
+  const [view, setView] = useState<"graph" | "list" | "table">("graph");
 
   const toggleType = useCallback((key: string) => {
     setSpineMode(false);
@@ -609,7 +612,14 @@ export function GraphExplorer({
   const selectedNode = selectedId ? nodeById.get(selectedId) ?? null : null;
   const selectedConnections = useMemo(() => {
     if (!selectedId) return [];
-    const out: { edgeId: string; id: string; name: string; typeName: string; label: string }[] = [];
+    const out: {
+      edgeId: string;
+      id: string;
+      name: string;
+      typeName: string;
+      label: string;
+      inferredReason?: string | null;
+    }[] = [];
     for (const e of data.edges) {
       if (e.source === selectedId) {
         const other = nodeById.get(e.target);
@@ -620,6 +630,7 @@ export function GraphExplorer({
             name: other.name,
             typeName: other.typeName,
             label: e.forwardLabel,
+            inferredReason: e.inferredReason,
           });
       } else if (e.target === selectedId) {
         const other = nodeById.get(e.source);
@@ -630,6 +641,7 @@ export function GraphExplorer({
             name: other.name,
             typeName: other.typeName,
             label: e.reverseLabel,
+            inferredReason: e.inferredReason,
           });
       }
     }
@@ -765,39 +777,75 @@ export function GraphExplorer({
           >
             + New record
           </button>
-          {hasSpine ? (
-            <button
-              onClick={toggleSpine}
-              aria-pressed={spineMode}
-              title="Show only Client → Project → Feature"
-              className={cn(
-                "mr-1 h-8 rounded-md border px-2.5 font-mono text-xs uppercase tracking-[0.12em] transition",
-                spineMode
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input text-muted-foreground hover:border-foreground hover:text-foreground",
-              )}
-            >
-              Spine
-            </button>
-          ) : null}
-          <ZoomButton onClick={() => zoomBy(1.25)} label="Zoom in">
-            +
-          </ZoomButton>
-          <ZoomButton onClick={() => zoomBy(0.8)} label="Zoom out">
-            −
-          </ZoomButton>
-          <button
-            onClick={resetView}
-            className="h-8 rounded-md border border-input px-2.5 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground transition hover:border-foreground hover:text-foreground"
-          >
-            Fit
-          </button>
         </div>
+      </div>
+
+      {/* View switcher */}
+      <div className="flex items-center gap-0 border-b border-border px-4">
+        {(["graph", "list", "table"] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            aria-pressed={view === v}
+            className={cn(
+              "relative -mb-px h-9 px-4 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] transition",
+              view === v
+                ? "border-b-2 border-foreground text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {v}
+          </button>
+        ))}
+        {/* Graph-only controls pushed right */}
+        {view === "graph" ? (
+          <div className="ml-auto flex items-center gap-1 pb-1 pt-1">
+            {hasSpine ? (
+              <button
+                onClick={toggleSpine}
+                aria-pressed={spineMode}
+                title="Show only Client → Project → Feature"
+                className={cn(
+                  "h-7 rounded-md border px-2 font-mono text-[10px] uppercase tracking-[0.12em] transition",
+                  spineMode
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input text-muted-foreground hover:border-foreground hover:text-foreground",
+                )}
+              >
+                Spine
+              </button>
+            ) : null}
+            <ZoomButton onClick={() => zoomBy(1.25)} label="Zoom in">+</ZoomButton>
+            <ZoomButton onClick={() => zoomBy(0.8)} label="Zoom out">−</ZoomButton>
+            <button
+              onClick={resetView}
+              className="h-7 rounded-md border border-input px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground transition hover:border-foreground hover:text-foreground"
+            >
+              Fit
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div ref={containerRef} className="relative h-[64vh] min-h-[440px] w-full">
         {data.nodes.length === 0 ? (
           <EmptyState />
+        ) : view === "list" ? (
+          <ListView
+            data={data}
+            hiddenTypes={hiddenTypes}
+            typeCounts={typeCounts}
+            selectedId={selectedId}
+            onSelect={(id) => setSelectedId(id)}
+          />
+        ) : view === "table" ? (
+          <TableView
+            data={data}
+            hiddenTypes={hiddenTypes}
+            typeCounts={typeCounts}
+            selectedId={selectedId}
+            onSelect={(id) => setSelectedId(id)}
+          />
         ) : (
           <svg
             ref={svgRef}
@@ -923,13 +971,15 @@ export function GraphExplorer({
           </svg>
         )}
 
-        {/* Legend / type filters */}
-        {data.types.length > 0 ? (
-          <div className="absolute left-3 top-3 max-w-[42%] rounded-md border border-border bg-card/90 p-3 backdrop-blur-sm">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-              Record types
-            </p>
-            <div className="flex max-h-[42vh] flex-col gap-1 overflow-y-auto pr-1">
+        {/* Legend / type filters — graph + list modes */}
+        {data.types.length > 0 && view !== "table" ? (
+          <div className="absolute left-3 top-3 max-w-[42%] rounded-md border border-border bg-card/90 backdrop-blur-sm">
+            <div className="px-3 pt-2.5 pb-1">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                Record types
+              </p>
+            </div>
+            <div className="flex max-h-[42vh] flex-col gap-1 overflow-y-auto px-3 pb-2.5 pr-2">
               {data.types
                 .filter((t) => (typeCounts.get(t.key) ?? 0) > 0)
                 .map((t) => {
@@ -961,9 +1011,11 @@ export function GraphExplorer({
         ) : null}
 
         {/* Hint */}
-        <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
-          click to focus · double-click to zoom · scroll to zoom · drag to pan
-        </p>
+        {view === "graph" ? (
+          <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
+            click to focus · double-click to zoom · scroll to zoom · drag to pan
+          </p>
+        ) : null}
 
         {/* Merge near-duplicates */}
         {mergingDupes ? (
@@ -1048,6 +1100,239 @@ export function GraphExplorer({
   );
 }
 
+function ListView({
+  data,
+  hiddenTypes,
+  typeCounts,
+  selectedId,
+  onSelect,
+}: {
+  data: GraphPayload;
+  hiddenTypes: Set<string>;
+  typeCounts: Map<string, number>;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const adjacency = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const n of data.nodes) map.set(n.id, new Set());
+    for (const e of data.edges) {
+      map.get(e.source)?.add(e.target);
+      map.get(e.target)?.add(e.source);
+    }
+    return map;
+  }, [data.nodes, data.edges]);
+
+  const nodeById = useMemo(
+    () => new Map(data.nodes.map((n) => [n.id, n])),
+    [data.nodes],
+  );
+
+  const visibleTypes = data.types.filter(
+    (t) => !hiddenTypes.has(t.key) && (typeCounts.get(t.key) ?? 0) > 0,
+  );
+
+  return (
+    <div className="h-full overflow-y-auto p-4 pl-[210px]">
+      <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4 space-y-4">
+        {visibleTypes.map((type) => {
+          const nodes = data.nodes.filter((n) => n.typeKey === type.key);
+          if (nodes.length === 0) return null;
+          return (
+            <div key={type.key} className="break-inside-avoid rounded-md border border-border bg-card">
+              <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-foreground" />
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground">
+                  {type.name}
+                </span>
+                <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {nodes.length}
+                </span>
+              </div>
+              <ul className="divide-y divide-border">
+                {nodes.map((node) => {
+                  const neighbors = adjacency.get(node.id) ?? new Set();
+                  const neighborNames = [...neighbors]
+                    .slice(0, 3)
+                    .map((id) => nodeById.get(id)?.name)
+                    .filter(Boolean) as string[];
+                  const extra = neighbors.size - neighborNames.length;
+                  const isSelected = node.id === selectedId;
+                  return (
+                    <li key={node.id}>
+                      <button
+                        onClick={() => onSelect(node.id)}
+                        className={cn(
+                          "w-full px-3 py-2 text-left transition hover:bg-secondary",
+                          isSelected && "bg-secondary",
+                        )}
+                      >
+                        <p className={cn(
+                          "truncate text-sm font-semibold",
+                          isSelected ? "text-primary" : "text-foreground",
+                        )}>
+                          {node.name}
+                        </p>
+                        {(node.status || neighborNames.length > 0) ? (
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {node.status ? (
+                              <span className="mr-2 font-medium">{node.status}</span>
+                            ) : null}
+                            {neighborNames.length > 0 ? (
+                              <span>
+                                {neighborNames.join(", ")}
+                                {extra > 0 ? ` +${extra}` : ""}
+                              </span>
+                            ) : null}
+                          </p>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TableView({
+  data,
+  hiddenTypes,
+  typeCounts,
+  selectedId,
+  onSelect,
+}: {
+  data: GraphPayload;
+  hiddenTypes: Set<string>;
+  typeCounts: Map<string, number>;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const visibleTypes = data.types.filter(
+    (t) => !hiddenTypes.has(t.key) && (typeCounts.get(t.key) ?? 0) > 0,
+  );
+  const [activeType, setActiveType] = useState<string>(
+    () => visibleTypes[0]?.key ?? "",
+  );
+
+  const adjacency = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const n of data.nodes) map.set(n.id, new Set());
+    for (const e of data.edges) {
+      map.get(e.source)?.add(e.target);
+      map.get(e.target)?.add(e.source);
+    }
+    return map;
+  }, [data.nodes, data.edges]);
+
+  const nodeById = useMemo(
+    () => new Map(data.nodes.map((n) => [n.id, n])),
+    [data.nodes],
+  );
+
+  const currentType = visibleTypes.find((t) => t.key === activeType) ?? visibleTypes[0];
+  const rows = data.nodes.filter((n) => n.typeKey === currentType?.key);
+
+  return (
+    <div className="flex h-full">
+      {/* Type tabs on left */}
+      <div className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-2">
+        {visibleTypes.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveType(t.key)}
+            className={cn(
+              "flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left transition",
+              activeType === t.key
+                ? "bg-secondary font-semibold text-foreground"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+            )}
+          >
+            <span className="truncate text-xs">{t.name}</span>
+            <span className="shrink-0 font-mono text-[10px] tabular-nums">
+              {typeCounts.get(t.key) ?? 0}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="min-w-0 flex-1 overflow-auto">
+        {rows.length === 0 ? (
+          <p className="p-6 text-sm text-muted-foreground">No records.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-background text-left">
+                <th className="sticky left-0 bg-background px-4 py-2.5 font-semibold text-foreground">
+                  Name
+                </th>
+                <th className="px-4 py-2.5 font-semibold text-foreground">Status</th>
+                <th className="px-4 py-2.5 font-semibold text-foreground">Connections</th>
+                {currentType?.fields.slice(0, 3).map((f) => (
+                  <th key={f.key} className="px-4 py-2.5 font-semibold text-foreground">
+                    {f.name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((node) => {
+                const neighbors = adjacency.get(node.id) ?? new Set();
+                const neighborNames = [...neighbors]
+                  .slice(0, 2)
+                  .map((id) => nodeById.get(id)?.name)
+                  .filter(Boolean) as string[];
+                const extra = neighbors.size - neighborNames.length;
+                const isSelected = node.id === selectedId;
+                return (
+                  <tr
+                    key={node.id}
+                    onClick={() => onSelect(node.id)}
+                    className={cn(
+                      "cursor-pointer transition hover:bg-secondary",
+                      isSelected && "bg-secondary",
+                    )}
+                  >
+                    <td className="sticky left-0 bg-inherit px-4 py-2.5">
+                      <span className={cn(
+                        "font-semibold",
+                        isSelected ? "text-primary" : "text-foreground",
+                      )}>
+                        {node.name}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {node.status ?? "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {neighborNames.length > 0
+                        ? neighborNames.join(", ") + (extra > 0 ? ` +${extra}` : "")
+                        : <span className="opacity-40">—</span>}
+                    </td>
+                    {currentType?.fields.slice(0, 3).map((f) => {
+                      const val = node.fields.find((nf) => nf.label === f.name)?.value;
+                      return (
+                        <td key={f.key} className="px-4 py-2.5 text-muted-foreground">
+                          {val ?? <span className="opacity-30">—</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ZoomButton({
   onClick,
   label,
@@ -1091,7 +1376,14 @@ function Inspector({
   onAssist,
 }: {
   node: GraphPayload["nodes"][number];
-  connections: { edgeId: string; id: string; name: string; typeName: string; label: string }[];
+  connections: {
+    edgeId: string;
+    id: string;
+    name: string;
+    typeName: string;
+    label: string;
+    inferredReason?: string | null;
+  }[];
   orgId: string;
   onClose: () => void;
   onNavigate: (id: string) => void;
@@ -1169,11 +1461,26 @@ function Inspector({
                       <li key={c.id + label} className="group flex items-center gap-1">
                         <button
                           onClick={() => onNavigate(c.id)}
-                          className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm transition hover:border-border hover:bg-secondary"
+                          title={c.inferredReason ?? undefined}
+                          className="flex min-w-0 flex-1 items-start gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm transition hover:border-border hover:bg-secondary"
                         >
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground transition group-hover:bg-primary" />
-                          <span className="truncate">{c.name}</span>
-                          <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                          {/* Solid marker for a stated fact, hollow for a concluded one. */}
+                          <span
+                            className={
+                              c.inferredReason
+                                ? "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full border border-accent"
+                                : "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground transition group-hover:bg-primary"
+                            }
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{c.name}</span>
+                            {c.inferredReason ? (
+                              <span className="mt-0.5 block text-[11px] leading-tight text-muted-foreground">
+                                {c.inferredReason}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="mt-0.5 shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
                             {c.typeName}
                           </span>
                         </button>

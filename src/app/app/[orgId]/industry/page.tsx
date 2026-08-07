@@ -25,10 +25,10 @@ export default async function IndustryPage({
         >
           ← Organizations
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+        <h1 className="mt-2 text-3xl font-bold tracking-tight">
           Choose an industry pack for {organization.name}
         </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           A pack gives you a proven starting model. The setup wizard then tailors
           it to how your organization actually works. You can edit everything
           before anything is created.

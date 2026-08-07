@@ -65,9 +65,33 @@ npm run db:reset   # wipe ./.pgdata and re-init
 
 Prefer Docker instead? `docker compose up -d db`, then point `DATABASE_URL` at port 5432.
 
-## Development sign-in
+### Migrations
 
-There is no external auth service in dev. On `/sign-in`, enter **any email** to find-or-create an account and receive a signed session cookie. The auth layer (`src/lib/auth.ts`) is isolated behind `getCurrentUser` / `createDevSession` / `signOut` so it can be swapped for Auth.js or Clerk without touching call sites.
+The schema is managed with real Prisma migrations, not `db push`:
+
+```bash
+npm run prisma:migrate   # create + apply a migration in dev
+npm run prisma:deploy    # apply pending migrations (what production runs)
+```
+
+The initial migration enables `pg_trgm` and creates the trigram index behind fuzzy record matching, so a fresh database comes up complete with no manual SQL.
+
+## Accounts and access
+
+Sign-in is email + password, with no external auth service. Passwords are hashed with **scrypt** from Node's standard library (`src/lib/password.ts`) — memory-hard, and no native module to compile on the deploy host. Parameters are stored inside each hash so they can be raised later without invalidating existing ones.
+
+- **Sessions** (`src/lib/auth.ts`): HMAC-SHA256 signed cookie, `httpOnly`, `secure` in production, verified with a constant-time compare. The surface is `getCurrentUser` / `createSession` / `signOut`, so it can be swapped for Auth.js or Clerk without touching call sites.
+- **Throttling** (`src/lib/accounts.ts`): five consecutive failures start a lockout that doubles up to 15 minutes. Unknown emails get the same message and comparable timing as a wrong password, so the form cannot be used to discover who has an account.
+- **Invitations** (`src/lib/invitations.ts`): owners and admins invite from `/app/[orgId]/members`. Only a SHA-256 digest of each token is stored, so a database leak cannot be replayed into org access. Links are single-use, expire in 14 days, and must be redeemed by the invited address.
+- **Roles**: `OWNER`, `ADMIN`, `MANAGER`, `CONTRIBUTOR`, `VIEWER`, enforced by `RolePrivileges` in `src/lib/tenant.ts`. The last owner of an org cannot be removed or demoted.
+
+Accounts created before passwords existed have no hash; the owner of that address can claim it by registering with the same email.
+
+## Deploying to Railway
+
+See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full walkthrough. In short: the app ships as a multi-stage `Dockerfile` producing a Next.js standalone server, `railway.json` runs `prisma migrate deploy` before boot, and `/api/health` is the healthcheck — it verifies a database round-trip rather than just returning 200.
+
+Production refuses to start on a bad configuration (missing `DATABASE_URL`, short or placeholder `AUTH_SECRET`) rather than failing at the first request. See `src/lib/env.ts`.
 
 ## Testing
 

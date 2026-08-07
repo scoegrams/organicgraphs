@@ -23,12 +23,19 @@ model User {
   id            String       @id @default(cuid())
   email         String       @unique
   name          String?
-  // Dev auth stores a bcrypt-like hash; real deployments swap in Auth.js/Clerk.
+  // scrypt digest, stored as scrypt$N$r$p$salt$hash. Null for accounts created
+  // by the pre-password dev sign-in, which must set one before signing in.
   passwordHash  String?
+  // Reserved so email verification can be switched on without a migration.
+  emailVerifiedAt DateTime?
+  // Login throttling: cleared on success, drives lockout while climbing.
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   memberships   Membership[]
   auditEvents   AuditEvent[]
+  invitesSent   Invitation[] @relation("InvitationCreatedBy")
 }
 
 model Organization {
@@ -56,8 +63,36 @@ model Organization {
   dashboards         DashboardDefinition[]
   healthChecks       HealthCheckDefinition[]
   auditEvents        AuditEvent[]
+  designPack         OrgDesignPack?
+  invitations        Invitation[]
 
   @@index([industryPackKey])
+}
+
+/**
+ * A pending invitation to join an organization.
+ *
+ * Only a SHA-256 digest of the token is stored, so a database leak cannot be
+ * replayed into org access. The raw token exists solely in the link handed to
+ * the invitee.
+ */
+model Invitation {
+  id             String     @id @default(cuid())
+  organizationId String
+  email          String
+  role           SystemRole @default(CONTRIBUTOR)
+  tokenHash      String     @unique
+  invitedById    String?
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime   @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy      User?        @relation("InvitationCreatedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([email])
 }
 
 enum SystemRole {
@@ -304,6 +339,26 @@ model HealthCheckDefinition {
 
   @@unique([organizationId, key])
   @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Org design pack (brand identity for the preview page)
+// ---------------------------------------------------------------------------
+
+model OrgDesignPack {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  tagline        String?
+  logoUrl        String?
+  colorPrimary   String   @default("#1f4d3a")
+  colorSecondary String   @default("#f3efe6")
+  colorAccent    String   @default("#c45c26")
+  colorNeutral   String   @default("#8a8178")
+  isPublic       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 // ---------------------------------------------------------------------------

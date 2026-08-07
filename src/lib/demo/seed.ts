@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { softwarePack } from "@/lib/packs/software";
 import type { IndustryPackDef } from "@/lib/packs/types";
+import { reconcileInference } from "@/lib/graph/inference/apply";
 import type { Sensitivity } from "@/lib/meta-model";
 import { softwareDemoDataset, type DemoDataset, type DemoRecord, type DemoRelationship } from "./software-demo";
 import {
@@ -572,7 +573,17 @@ async function seedDataset(
       relationshipsCreated++;
     }
 
-    return { recordsCreated, relationshipsCreated };
+    // The dataset above states only what the user actually told us. Everything
+    // that follows from those facts is drawn here, so a freshly seeded org
+    // arrives densely and defensibly connected rather than as a flat list.
+    const inference = await reconcileInference(tx, organizationId, {
+      packKey: pack.key,
+    });
+
+    return {
+      recordsCreated,
+      relationshipsCreated: relationshipsCreated + inference.created,
+    };
   });
 }
 

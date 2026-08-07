@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { brand } from "@/lib/brand";
+import { assertProductionEnv } from "@/lib/env";
+
+assertProductionEnv();
 
 export const metadata: Metadata = {
   title: `${brand.name} — ${brand.tagline}`,

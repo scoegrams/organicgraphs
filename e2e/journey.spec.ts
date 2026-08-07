@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { signUp } from "./helpers";
 
 // The critical journey: sign in → create org → choose industry → complete the
 // wizard → review a recommendation with real counts → approve → land on the
@@ -7,11 +8,7 @@ test("setup wizard to generated workspace", async ({ page }) => {
   const email = `e2e_${Date.now()}@example.com`;
   const orgName = `E2E Studio ${Date.now()}`;
 
-  // Sign in (dev).
-  await page.goto("/sign-in");
-  await page.getByLabel("Work email").fill(email);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await signUp(page, email);
 
   // Create organization.
   await page.getByRole("link", { name: "New organization" }).click();
